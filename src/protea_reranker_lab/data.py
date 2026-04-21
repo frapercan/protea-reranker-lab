@@ -14,40 +14,17 @@ Parquet columns (reserved + 52 features):
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass
 from pathlib import Path
 
 import pandas as pd
 
 from .reranker import ALL_FEATURES
+from .schemas import RESERVED_COLUMNS, ManifestV1
 
 
-RESERVED_COLS = ["protein_accession", "go_term_id", "label",
-                 "category", "aspect", "snapshot_pair"]
+RESERVED_COLS = list(RESERVED_COLUMNS)
 
-
-@dataclass
-class DatasetManifest:
-    name: str
-    k: int
-    embedding_config_id: str
-    ontology_snapshot_id: str
-    train_snapshot_pairs: list[str]
-    eval_snapshot_pair: str
-    schema_sha: str
-    annotation_source: str | None = None
-    n_train_rows: int | None = None
-    n_eval_rows: int | None = None
-
-    @classmethod
-    def load(cls, path: str | Path) -> "DatasetManifest":
-        with open(path) as f:
-            data = json.load(f)
-        import inspect
-        allowed = {f.name for f in cls.__dataclass_fields__.values()}
-        filtered = {k: v for k, v in data.items() if k in allowed}
-        return cls(**filtered)
+DatasetManifest = ManifestV1
 
 
 def load_partition(

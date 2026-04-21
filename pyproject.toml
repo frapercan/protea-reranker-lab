@@ -8,6 +8,7 @@ dependencies = [
     "numpy>=1.26",
     "pandas>=2.2",
     "pyarrow>=15",
+    "pydantic>=2.6",
     "scikit-learn>=1.4",
     "wandb>=0.16",
     "pyyaml>=6",
