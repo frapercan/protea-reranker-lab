@@ -5,6 +5,7 @@ __pycache__/
 .env
 datasets/*/*.parquet
 datasets/*/*.arrow
+runs/
 wandb/
 .wandb/
 *.log

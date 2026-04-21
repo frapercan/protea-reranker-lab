@@ -9,6 +9,7 @@ from .experiment import (
     SweepRef,
     TrainingSpec,
 )
+from .runner import resolve_dataset, run_experiment
 
 __version__ = "0.1.0"
 
@@ -22,4 +23,6 @@ __all__ = [
     "ModelSpec",
     "SweepRef",
     "TrainingSpec",
+    "resolve_dataset",
+    "run_experiment",
 ]

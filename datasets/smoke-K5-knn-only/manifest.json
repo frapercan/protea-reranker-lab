@@ -1,0 +1,23 @@
+{
+  "schema_version": "v1",
+  "name": "smoke-K5-knn-only",
+  "k": 5,
+  "embedding_config_id": "c0ae5b69-d6dc-41cf-a711-1739d3d2e170",
+  "ontology_snapshot_id": "6d399baf-339b-4496-9aae-ed75d03229ea",
+  "annotation_source": "goa",
+  "train_snapshot_pairs": [
+    "v215-v220"
+  ],
+  "eval_snapshot_pair": "v220-v230",
+  "schema_sha": "d4201a5cb40a",
+  "n_train_rows": 2497656,
+  "n_eval_rows": 2713242,
+  "format": "parquet",
+  "spec_hash": "5bb1f0bc7492",
+  "parent_schema_sha": "0d9b7219433f",
+  "feature_families": [
+    "knn",
+    "alignment_nw",
+    "annotation_meta"
+  ]
+}

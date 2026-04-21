@@ -20,9 +20,11 @@ model:
     min_data_in_leaf: 200
 
 training:
+  # smoke-K5 only has one training snapshot_pair (v215-v220),
+  # so temporal holdout would empty the train set — use protein_group.
   cell: pk-bpo
-  val_strategy: temporal
-  val_holdout_snapshot: v215-v220
+  val_strategy: protein_group
+  val_fraction: 0.2
   neg_pos_ratio: 10
   seed: 42
 
