@@ -1,6 +1,12 @@
 """protea-reranker-lab: frozen-feature reranker experimentation."""
 
-from .schemas import DatasetSpec, ManifestV1, SCHEMA_VERSION
+from .schemas import (
+    DatasetSpec,
+    ManifestV1,
+    SCHEMA_VERSION,
+    compute_feature_schema_sha,
+    compute_schema_sha,
+)
 from .builder import build_dataset
 from .experiment import (
     DatasetRef,
@@ -11,13 +17,15 @@ from .experiment import (
 )
 from .runner import resolve_dataset, run_experiment
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "DatasetSpec",
     "ManifestV1",
     "SCHEMA_VERSION",
     "build_dataset",
+    "compute_feature_schema_sha",
+    "compute_schema_sha",
     "DatasetRef",
     "ExperimentSpec",
     "ModelSpec",

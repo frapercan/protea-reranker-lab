@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field, field_validator
 from .reranker import ALL_FEATURES, FEATURE_FAMILIES
 
 
-SCHEMA_VERSION = "v1"
+SCHEMA_VERSION = "v2"
 
 RESERVED_COLUMNS: tuple[str, ...] = (
     "protein_accession", "go_term_id", "label",
@@ -47,6 +47,24 @@ def required_columns(families: list[str] | None = None,
 
 def compute_schema_sha(columns: list[str]) -> str:
     blob = "|".join(sorted(columns)).encode()
+    return hashlib.sha256(blob).hexdigest()[:12]
+
+
+def compute_feature_schema_sha(families: list[str],
+                               drop: list[str] | None = None) -> str:
+    """Feature-family-aware schema fingerprint.
+
+    Binds the selected families *and* their column lists together, so a
+    rename or semantic change of a family's columns changes the sha even
+    if the final column set happens to collide.
+    """
+    parts: list[str] = []
+    for fam in sorted(families):
+        cols = FEATURE_FAMILIES[fam]
+        parts.append(f"{fam}={','.join(sorted(cols))}")
+    if drop:
+        parts.append("drop=" + ",".join(sorted(drop)))
+    blob = "|".join(parts).encode()
     return hashlib.sha256(blob).hexdigest()[:12]
 
 
@@ -98,6 +116,8 @@ class ManifestV1(BaseModel):
     spec_hash: str | None = None
     parent_schema_sha: str | None = None
     feature_families: list[str] | None = None
+    producer_version: str | None = None
+    producer_git_sha: str | None = None
 
     model_config = {"extra": "ignore"}
 
