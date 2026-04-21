@@ -1,0 +1,33 @@
+name: smoke-K5_pk-bpo_knn-only
+description: |
+  Ablation — pk-bpo with only (knn, alignment_nw, annotation_meta)
+  features. Sanity check on the smoke dataset.
+
+dataset:
+  spec:
+    name: smoke-K5-knn-only
+    source_manifest: datasets/smoke-K5/manifest.json
+    enabled_feature_families: [knn, alignment_nw, annotation_meta]
+
+model:
+  kind: lgbm_reranker
+  defaults:
+    objective: binary
+    num_boost_round: 5000
+    early_stopping_rounds: 50
+    learning_rate: 0.08
+    num_leaves: 127
+    min_data_in_leaf: 200
+
+training:
+  cell: pk-bpo
+  val_strategy: temporal
+  val_holdout_snapshot: v215-v220
+  neg_pos_ratio: 10
+  seed: 42
+
+sweep:
+  backend: none
+
+output_dir: runs/smoke-K5_pk-bpo_knn-only
+tags: [ablation, smoke, pk-bpo]
