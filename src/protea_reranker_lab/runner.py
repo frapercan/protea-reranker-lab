@@ -30,9 +30,16 @@ from typing import Any
 from .builder import build_dataset
 from .data import load_partition, split_train_val, split_train_val_temporal
 from .evaluate import fmax_per_protein_group
-from .experiment import ExperimentSpec
+from .experiment import ExperimentSpec, ModelSpec, TrainingSpec
 from .reranker import FEATURE_FAMILIES, TrainConfig, fit, predict
 from .schemas import ManifestV1, required_columns
+
+
+# Fields that live on TrainingSpec (rest of the overrides target model.defaults).
+_TRAINING_FIELDS: frozenset[str] = frozenset({
+    "cell", "val_strategy", "val_fraction",
+    "val_holdout_snapshot", "neg_pos_ratio", "seed",
+})
 
 
 def resolve_dataset(spec: ExperimentSpec, *, datasets_root: str | Path = "datasets") -> Path:
@@ -53,12 +60,33 @@ def resolve_dataset(spec: ExperimentSpec, *, datasets_root: str | Path = "datase
     return manifest_path
 
 
-def run_experiment(spec: ExperimentSpec, *, datasets_root: str | Path = "datasets") -> dict[str, Any]:
-    if spec.sweep.backend != "none":
-        raise NotImplementedError(
-            f"sweep backend '{spec.sweep.backend}' not yet wired to the runner; "
-            "launch via wandb agent + scripts/train.py for now"
+def run_experiment(
+    spec: ExperimentSpec,
+    *,
+    datasets_root: str | Path = "datasets",
+    hparam_overrides: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if spec.sweep.backend == "local_grid":
+        raise NotImplementedError("sweep backend 'local_grid' not yet wired to the runner")
+
+    wandb_run = None
+    overrides = dict(hparam_overrides or {})
+    if spec.sweep.backend == "wandb":
+        import wandb
+        wandb_run = wandb.init(
+            project=spec.sweep.project,
+            name=spec.name,
+            tags=spec.tags or None,
+            config={"spec_name": spec.name, "spec_hash": spec.hash(), **overrides},
         )
+        # wandb-agent-injected params land in wandb.config; let them override.
+        for k, v in dict(wandb_run.config).items():
+            if k in ("spec_name", "spec_hash"):
+                continue
+            overrides[k] = v
+
+    if overrides:
+        spec = _apply_overrides(spec, overrides)
 
     run_id = _make_run_id(spec)
     out_dir = Path(spec.output_dir) if spec.output_dir else Path("runs") / run_id
@@ -72,7 +100,9 @@ def run_experiment(spec: ExperimentSpec, *, datasets_root: str | Path = "dataset
         "spec_hash": spec.hash(),
         "spec_tags": spec.tags,
         "output_dir": str(out_dir),
+        "hparam_overrides": overrides,
         "environment": _environment_info(),
+        "wandb": _wandb_info(wandb_run),
     }
     spec.to_yaml(out_dir / "spec.yaml")
     _dump_report(out_dir, report)
@@ -104,6 +134,11 @@ def run_experiment(spec: ExperimentSpec, *, datasets_root: str | Path = "dataset
             "positive_rate_train": float(df_tr["label"].mean()) if len(df_tr) else 0.0,
         }
         _dump_report(out_dir, report)
+        if wandb_run is not None:
+            wandb_run.config.update(
+                {"resolved_hparams": report["resolved_hparams"], **report["split"]},
+                allow_val_change=True,
+            )
 
         booster, train_metrics = fit(df_tr, df_val if len(df_val) else None, cfg)
         booster.save_model(str(out_dir / "model.txt"))
@@ -123,6 +158,15 @@ def run_experiment(spec: ExperimentSpec, *, datasets_root: str | Path = "dataset
             train_metrics["feature_importance"].items(), key=lambda kv: -kv[1]
         )}
         report["status"] = "ok"
+
+        if wandb_run is not None:
+            wandb_run.log({
+                "test_fmax": float(fmax),
+                "best_iteration": int(train_metrics["best_iteration"]),
+            })
+            wandb_run.summary["test_fmax"] = float(fmax)
+            wandb_run.summary["best_iteration"] = int(train_metrics["best_iteration"])
+            wandb_run.save(str(out_dir / "run.json"))
     except Exception as e:
         report["status"] = "failed"
         report["error"] = repr(e)
@@ -131,6 +175,8 @@ def run_experiment(spec: ExperimentSpec, *, datasets_root: str | Path = "dataset
         report["finished_at"] = _iso_now()
         report["duration_s"] = round(time.monotonic() - t0, 2)
         _dump_report(out_dir, report)
+        if wandb_run is not None:
+            wandb_run.finish(exit_code=0 if report["status"] == "ok" else 1)
 
     return report
 
@@ -273,3 +319,32 @@ def _check_nonempty(df_tr, spec: ExperimentSpec, df_tr_all) -> None:
 
 def _dump_report(out_dir: Path, report: dict[str, Any]) -> None:
     (out_dir / "run.json").write_text(json.dumps(report, indent=2, default=float))
+
+
+def _apply_overrides(spec: ExperimentSpec, overrides: dict[str, Any]) -> ExperimentSpec:
+    """Route overrides into training (for training-level fields) or model.defaults.
+
+    Pydantic revalidates via constructor to catch e.g. val_strategy changes
+    that now require a val_holdout_snapshot.
+    """
+    training_over = {k: v for k, v in overrides.items() if k in _TRAINING_FIELDS}
+    model_over = {k: v for k, v in overrides.items() if k not in _TRAINING_FIELDS}
+    new_training = TrainingSpec(**{**spec.training.model_dump(), **training_over})
+    new_model = ModelSpec(
+        kind=spec.model.kind,
+        defaults={**spec.model.defaults, **model_over},
+    )
+    return spec.model_copy(update={"model": new_model, "training": new_training})
+
+
+def _wandb_info(run: Any) -> dict[str, Any] | None:
+    if run is None:
+        return None
+    return {
+        "backend": "wandb",
+        "run_id": getattr(run, "id", None),
+        "run_name": getattr(run, "name", None),
+        "project": getattr(run, "project", None),
+        "entity": getattr(run, "entity", None),
+        "url": getattr(run, "url", None),
+    }
