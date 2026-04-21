@@ -1,0 +1,141 @@
+{
+  "dataset": "smoke-K5",
+  "cell": "pk-bpo",
+  "val_strategy": "protein_group",
+  "temporal_holdout": null,
+  "base": {},
+  "grid": {
+    "learning_rate": [
+      0.05,
+      0.1
+    ],
+    "num_leaves": [
+      31,
+      63
+    ],
+    "min_data_in_leaf": [
+      50,
+      100
+    ]
+  },
+  "n_trials": 8,
+  "best": {
+    "idx": 8,
+    "params": {
+      "learning_rate": 0.1,
+      "num_leaves": 63,
+      "min_data_in_leaf": 100
+    },
+    "best_iteration": 87,
+    "test_fmax": 0.08914200835489984,
+    "runtime_s": 9.74,
+    "n_train": 351004,
+    "n_val": 88008
+  },
+  "trials": [
+    {
+      "idx": 8,
+      "params": {
+        "learning_rate": 0.1,
+        "num_leaves": 63,
+        "min_data_in_leaf": 100
+      },
+      "best_iteration": 87,
+      "test_fmax": 0.08914200835489984,
+      "runtime_s": 9.74,
+      "n_train": 351004,
+      "n_val": 88008
+    },
+    {
+      "idx": 3,
+      "params": {
+        "learning_rate": 0.05,
+        "num_leaves": 63,
+        "min_data_in_leaf": 50
+      },
+      "best_iteration": 21,
+      "test_fmax": 0.08698929707021383,
+      "runtime_s": 7.9,
+      "n_train": 351004,
+      "n_val": 88008
+    },
+    {
+      "idx": 1,
+      "params": {
+        "learning_rate": 0.05,
+        "num_leaves": 31,
+        "min_data_in_leaf": 50
+      },
+      "best_iteration": 35,
+      "test_fmax": 0.0858283741618436,
+      "runtime_s": 7.84,
+      "n_train": 351004,
+      "n_val": 88008
+    },
+    {
+      "idx": 6,
+      "params": {
+        "learning_rate": 0.1,
+        "num_leaves": 31,
+        "min_data_in_leaf": 100
+      },
+      "best_iteration": 6,
+      "test_fmax": 0.08580905140561551,
+      "runtime_s": 7.49,
+      "n_train": 351004,
+      "n_val": 88008
+    },
+    {
+      "idx": 7,
+      "params": {
+        "learning_rate": 0.1,
+        "num_leaves": 63,
+        "min_data_in_leaf": 50
+      },
+      "best_iteration": 80,
+      "test_fmax": 0.08539498882515763,
+      "runtime_s": 9.39,
+      "n_train": 351004,
+      "n_val": 88008
+    },
+    {
+      "idx": 4,
+      "params": {
+        "learning_rate": 0.05,
+        "num_leaves": 63,
+        "min_data_in_leaf": 100
+      },
+      "best_iteration": 93,
+      "test_fmax": 0.08226354139463812,
+      "runtime_s": 9.22,
+      "n_train": 351004,
+      "n_val": 88008
+    },
+    {
+      "idx": 2,
+      "params": {
+        "learning_rate": 0.05,
+        "num_leaves": 31,
+        "min_data_in_leaf": 100
+      },
+      "best_iteration": 37,
+      "test_fmax": 0.08122518348444495,
+      "runtime_s": 8.27,
+      "n_train": 351004,
+      "n_val": 88008
+    },
+    {
+      "idx": 5,
+      "params": {
+        "learning_rate": 0.1,
+        "num_leaves": 31,
+        "min_data_in_leaf": 50
+      },
+      "best_iteration": 36,
+      "test_fmax": 0.07876600817292362,
+      "runtime_s": 8.13,
+      "n_train": 351004,
+      "n_val": 88008
+    }
+  ]
+}

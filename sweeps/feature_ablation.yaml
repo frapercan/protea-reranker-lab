@@ -1,0 +1,39 @@
+program: src/protea_reranker_lab/train.py
+method: grid
+metric:
+  name: test_fmax
+  goal: maximize
+parameters:
+  dataset:
+    value: datasets/bench-v1-K5
+  cell:
+    value: pk-bpo
+  objective:
+    value: lambdarank
+  val_strategy:
+    value: protein_group
+  drop_feature_family:
+    values:
+      - []                          # full feature set (baseline)
+      - [alignment_nw, alignment_sw]
+      - [taxonomy_pair, taxonomy_voters]
+      - [anc2vec_query]
+      - [anc2vec_neighbor, anc2vec_query]
+      - [emb_pca]
+      - [go_context]
+  learning_rate:
+    value: 0.05
+  num_leaves:
+    value: 63
+  min_data_in_leaf:
+    value: 100
+  num_boost_round:
+    value: 5000
+  early_stopping_rounds:
+    value: 50
+command:
+  - python
+  - -m
+  - protea_reranker_lab.train
+  - --wandb-project=protea-reranker
+  - ${args}

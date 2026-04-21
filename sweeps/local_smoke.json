@@ -1,0 +1,5 @@
+{
+  "learning_rate": [0.05, 0.1],
+  "num_leaves": [31, 63],
+  "min_data_in_leaf": [50, 100]
+}

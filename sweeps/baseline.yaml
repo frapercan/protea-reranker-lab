@@ -1,0 +1,48 @@
+program: src/protea_reranker_lab/train.py
+method: bayes
+metric:
+  name: test_fmax
+  goal: maximize
+parameters:
+  # Structural — fixed per sweep, change across sweeps for ablations
+  dataset:
+    value: datasets/bench-v1-K5
+  cell:
+    value: pk-bpo               # override per-cell; run one sweep per cell
+  objective:
+    values: [lambdarank, binary]
+  val_strategy:
+    values: [protein_group, temporal]
+  temporal_holdout:
+    value: v215-v220
+  # Hparam search space
+  learning_rate:
+    distribution: log_uniform_values
+    min: 0.01
+    max: 0.3
+  num_leaves:
+    values: [31, 63, 127, 255, 511]
+  min_data_in_leaf:
+    values: [20, 50, 100, 200, 500]
+  feature_fraction:
+    distribution: uniform
+    min: 0.6
+    max: 1.0
+  bagging_fraction:
+    distribution: uniform
+    min: 0.6
+    max: 1.0
+  neg_pos_ratio:
+    values: [null, 3, 5, 10, 20]
+  val_fraction:
+    values: [0.05, 0.1, 0.2]
+  num_boost_round:
+    value: 5000
+  early_stopping_rounds:
+    value: 50
+command:
+  - python
+  - -m
+  - protea_reranker_lab.train
+  - --wandb-project=protea-reranker
+  - ${args}
