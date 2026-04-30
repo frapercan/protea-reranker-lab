@@ -232,38 +232,48 @@ def _section_hparam() -> str:
 
 def _section_cafaeval() -> str:
     out_dir = ROOT / "cafaeval"
-    if not out_dir.exists():
+    csv_path = out_dir / "results.csv"
+    if not csv_path.exists():
         return "## 5. Cafaeval re-validation (winners)\n\n_(pending)_\n"
-    files = sorted(out_dir.glob("*_metrics.json"))
-    if not files:
+    rows = _read_csv(csv_path)
+    if not rows:
         return "## 5. Cafaeval re-validation (winners)\n\n_(pending)_\n"
     lines = [
         "## 5. Cafaeval re-validation (winners)",
         "",
-        "| cell | lab_fmax | cafaeval_fmax | Δ |",
-        "|---|---|---|---|",
+        "_Lab Fmax = lab evaluator (no prediction-side propagation). Cafaeval = "
+        "PROTEA fork (CAFA `prop=fill`, `norm=cafa`). Cafaeval propagates "
+        "predictions and ground truth through the GO DAG; lab Fmax does not._",
+        "",
+        "| cell | lab Fmax | cafaeval Fmax | ratio | Δ (cafa − lab) |",
+        "|---|---|---|---|---|",
     ]
-    rep_csv = ROOT / "replication" / "results.csv"
-    seed_lookup: dict[str, float] = {}
-    for r in _read_csv(rep_csv):
-        if r.get("status") != "ok":
+    cell_order = [c for c in CELLS if any(r.get("cell") == c for r in rows)]
+    cell_order += [r["cell"] for r in rows if r.get("cell") not in cell_order]
+    by_cell = {r.get("cell"): r for r in rows}
+    cafas: list[float] = []
+    labs: list[float] = []
+    for c in cell_order:
+        r = by_cell.get(c)
+        if r is None:
             continue
-        cell = r["spec"].rsplit("_seed", 1)[0]
-        v = _f(r.get("fmax"))
-        if v is None:
+        lab = _f(r.get("lab_fmax"))
+        cafa = _f(r.get("cafaeval_fmax"))
+        if lab is None or cafa is None:
             continue
-        seed_lookup[cell] = max(seed_lookup.get(cell, -1.0), v)
-    for f in files:
-        cell = f.stem.replace("_metrics", "")
-        try:
-            data = json.loads(f.read_text())
-        except Exception:
-            continue
-        cafa = data.get("fmax")
-        lab = seed_lookup.get(cell)
-        if cafa is None or lab is None:
-            continue
-        lines.append(f"| {cell} | {lab:.4f} | {cafa:.4f} | {(lab - cafa):+.4f} |")
+        labs.append(lab); cafas.append(cafa)
+        ratio = cafa / lab if lab else float("nan")
+        delta = cafa - lab
+        lines.append(f"| {c} | {lab:.4f} | **{cafa:.4f}** | {ratio:.2f}× | {delta:+.4f} |")
+    if cafas:
+        avg_lab = sum(labs) / len(labs)
+        avg_cafa = sum(cafas) / len(cafas)
+        lines.append("")
+        lines.append(
+            f"**avg lab Fmax: {avg_lab:.4f}**  ·  "
+            f"**avg cafaeval Fmax: {avg_cafa:.4f}**  "
+            f"(historical hybrid ceiling: 0.4400; v8-full record: 0.4251)"
+        )
     return "\n".join(lines) + "\n"
 
 
