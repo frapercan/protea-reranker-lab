@@ -52,6 +52,9 @@ class TrainingSpec(BaseModel):
     val_holdout_snapshot: str | None = None
     neg_pos_ratio: float | None = None
     seed: int = 42
+    # When true, staging looks for ``parent_map.json`` next to the dataset
+    # manifest and propagates labels to GO ancestors (CAFA True-Path-Rule).
+    propagate_labels: bool = False
 
     model_config = {"frozen": True}
 

@@ -133,20 +133,23 @@ def _scan_pass0(
     snapshot_pairs: list[str] | None,
     cat_cols: list[str],
     batch_size: int,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, list[str]]]:
-    """Collect protein, label, snapshot_pair, and cat-value vocabulary.
+    collect_go_terms: bool = False,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, list[str]], np.ndarray | None]:
+    """Collect protein, label, snapshot_pair, cat-value vocabulary, and
+    optionally go_term_id (only needed for True-Path-Rule propagation).
 
-    Returns ``(proteins, labels, snapshot_pair, cat_codes)`` where the first
-    three are numpy arrays of length n_rows (cell-filtered), and ``cat_codes``
-    maps each cat column to an ordered list of unique values seen.
+    Returns ``(proteins, labels, snapshot_pair, cat_codes, go_terms_or_None)``.
     """
     cols = ["protein_accession", "label", "snapshot_pair", *cat_cols]
+    if collect_go_terms:
+        cols.append("go_term_id")
     cols = _present_columns(parquet_path, cols)
     cat_seen: dict[str, set] = {c: set() for c in cat_cols}
 
     prot_chunks: list[np.ndarray] = []
     label_chunks: list[np.ndarray] = []
     pair_chunks: list[np.ndarray] = []
+    go_chunks: list[np.ndarray] = []
 
     for batch in iter_batches(
         parquet_path,
@@ -160,6 +163,8 @@ def _scan_pass0(
         label_chunks.append(batch.column("label").to_numpy(zero_copy_only=False).astype(np.int8, copy=False))
         if "snapshot_pair" in batch.schema.names:
             pair_chunks.append(batch.column("snapshot_pair").to_numpy(zero_copy_only=False))
+        if collect_go_terms and "go_term_id" in batch.schema.names:
+            go_chunks.append(batch.column("go_term_id").to_numpy(zero_copy_only=False))
         for c in cat_cols:
             if c not in batch.schema.names:
                 continue
@@ -172,9 +177,79 @@ def _scan_pass0(
     labels = np.concatenate(label_chunks) if label_chunks else np.empty(0, dtype=np.int8)
     pairs = (np.concatenate(pair_chunks) if pair_chunks
              else np.empty(len(proteins), dtype=object))
+    go_terms = np.concatenate(go_chunks) if go_chunks else None
 
     cat_codes = {c: sorted(cat_seen[c]) for c in cat_cols}
-    return proteins, labels, pairs, cat_codes
+    return proteins, labels, pairs, cat_codes, go_terms
+
+
+def load_parent_map(path: Path | str) -> dict[str, frozenset[str]]:
+    """Read a parent_map.json (as produced by ``scripts/export_parent_map.py``)
+    and return ``{child_go: frozenset(direct parents)}``."""
+    with open(path) as f:
+        payload = json.load(f)
+    if "parents" in payload:
+        raw = payload["parents"]
+    else:
+        raw = payload
+    return {child: frozenset(parents) for child, parents in raw.items()}
+
+
+def propagate_labels_to_ancestors(
+    proteins: np.ndarray,
+    go_terms: np.ndarray,
+    labels: np.ndarray,
+    parent_map: dict[str, frozenset[str]],
+) -> tuple[np.ndarray, int]:
+    """True-Path-Rule label propagation.
+
+    For each protein, expand its set of leaf positives with every is_a /
+    part_of ancestor; any row whose ``(protein, go_term)`` is in the closure
+    is then re-labelled as positive.
+
+    Returns ``(new_labels, n_promoted)`` where ``n_promoted`` counts rows
+    flipped from 0 to 1.
+    """
+    if labels.size == 0:
+        return labels.copy(), 0
+
+    ancestor_cache: dict[str, frozenset[str]] = {}
+
+    def _ancestors(go_id: str) -> frozenset[str]:
+        cached = ancestor_cache.get(go_id)
+        if cached is not None:
+            return cached
+        seen: set[str] = set()
+        stack = [go_id]
+        while stack:
+            cur = stack.pop()
+            for p in parent_map.get(cur, ()):
+                if p not in seen:
+                    seen.add(p)
+                    stack.append(p)
+        result = frozenset(seen)
+        ancestor_cache[go_id] = result
+        return result
+
+    closure: dict[str, set[str]] = {}
+    pos_idx = np.flatnonzero(labels > 0)
+    for i in pos_idx:
+        prot = proteins[i]
+        gid = go_terms[i]
+        bucket = closure.setdefault(prot, set())
+        bucket.add(gid)
+        bucket.update(_ancestors(gid))
+
+    new_labels = labels.copy()
+    n_promoted = 0
+    for i in range(len(labels)):
+        if new_labels[i]:
+            continue
+        cl = closure.get(proteins[i])
+        if cl is not None and go_terms[i] in cl:
+            new_labels[i] = 1
+            n_promoted += 1
+    return new_labels, n_promoted
 
 
 def _decide_split(
@@ -327,8 +402,14 @@ def _pass1_route_and_write(
     val_writers: list[pq.ParquetWriter] | None,
     schema: pa.Schema,
     batch_size: int,
+    override_labels: np.ndarray | None = None,
 ) -> tuple[int, int]:
-    """Stream filter + cat-encode + bucket-route. Return ``(n_train, n_val)``."""
+    """Stream filter + cat-encode + bucket-route. Return ``(n_train, n_val)``.
+
+    If ``override_labels`` is provided (length matching the cell-filtered row
+    count produced by Pass 0), it replaces the source's ``label`` column —
+    used for True-Path-Rule label propagation.
+    """
     cols = ["protein_accession", "label", *feature_cols]
     cols = _present_columns(parquet_path, cols)
     code_maps = {c: {v: i for i, v in enumerate(cat_codes[c])} for c in categorical_cols}
@@ -347,13 +428,16 @@ def _pass1_route_and_write(
         m = batch.num_rows
         local_keep = keep_mask[cursor:cursor + m]
         local_val = val_mask[cursor:cursor + m]
+        if override_labels is not None:
+            labels = override_labels[cursor:cursor + m].astype(np.int8, copy=False)
+        else:
+            labels = batch.column("label").to_numpy(zero_copy_only=False).astype(np.int8, copy=False)
         cursor += m
 
         if not local_keep.any():
             continue
 
         accessions = batch.column("protein_accession")
-        labels = batch.column("label").to_numpy(zero_copy_only=False).astype(np.int8, copy=False)
 
         feat_arrays: dict[str, np.ndarray] = {}
         for c in feature_cols:
@@ -570,6 +654,7 @@ def stage_for_training(
     eval_snapshot_pair: str | None = None,
     bucket_count: int = 32,
     batch_size: int = 200_000,
+    parent_map_path: Path | str | None = None,
 ) -> StageResult:
     cat, asp = cell[0].lower(), cell[1].lower()
     out_dir = Path(out_dir)
@@ -578,13 +663,30 @@ def stage_for_training(
     schema = _build_pass1_schema(feature_cols, categorical_cols)
     numeric_cols = [c for c in feature_cols if c not in set(categorical_cols)]
 
-    proteins0, labels0, pairs0, cat_codes = _scan_pass0(
+    propagate = parent_map_path is not None
+    proteins0, labels0, pairs0, cat_codes, go_terms0 = _scan_pass0(
         source_train_parquet,
         category=cat, aspect=asp,
         snapshot_pairs=train_snapshot_pairs,
         cat_cols=categorical_cols,
         batch_size=batch_size,
+        collect_go_terms=propagate,
     )
+
+    propagation_stats: dict[str, int] = {}
+    if propagate:
+        if go_terms0 is None:
+            raise RuntimeError("propagation requested but go_term_id column is missing")
+        parent_map = load_parent_map(parent_map_path)
+        n_pos_before = int((labels0 > 0).sum())
+        labels0, n_promoted = propagate_labels_to_ancestors(
+            proteins0, go_terms0, labels0, parent_map,
+        )
+        propagation_stats = {
+            "positives_before": n_pos_before,
+            "positives_after": int((labels0 > 0).sum()),
+            "rows_promoted": n_promoted,
+        }
 
     keep_mask, val_mask, val_proteins = _decide_split(
         proteins=proteins0, labels=labels0, pairs=pairs0,
@@ -623,6 +725,7 @@ def stage_for_training(
             val_writers=val_writers,
             schema=schema,
             batch_size=batch_size,
+            override_labels=labels0 if propagate else None,
         )
 
         train_split = _materialise_split(
@@ -643,6 +746,27 @@ def stage_for_training(
             )
 
         eval_writers = _open_bucket_writers(tmp_dir, schema, bucket_count, "eval")
+        eval_override_labels = None
+        if propagate:
+            parent_map_local = load_parent_map(parent_map_path)
+            ev_proteins, ev_labels, _, _, ev_go_terms = _scan_pass0(
+                source_eval_parquet,
+                category=cat, aspect=asp,
+                snapshot_pairs=[eval_snapshot_pair] if eval_snapshot_pair else None,
+                cat_cols=[],
+                batch_size=batch_size,
+                collect_go_terms=True,
+            )
+            ev_n_pos_before = int((ev_labels > 0).sum())
+            ev_labels, ev_promoted = propagate_labels_to_ancestors(
+                ev_proteins, ev_go_terms, ev_labels, parent_map_local,
+            )
+            propagation_stats.update({
+                "eval_positives_before": ev_n_pos_before,
+                "eval_positives_after": int((ev_labels > 0).sum()),
+                "eval_rows_promoted": ev_promoted,
+            })
+            eval_override_labels = ev_labels
         _stream_eval(
             source_eval_parquet=source_eval_parquet,
             category=cat, aspect=asp,
@@ -654,6 +778,7 @@ def stage_for_training(
             writers=eval_writers,
             schema=schema,
             batch_size=batch_size,
+            override_labels=eval_override_labels,
         )
         eval_split = _materialise_split(
             bucket_writers=eval_writers,
@@ -684,6 +809,10 @@ def stage_for_training(
         n_proteins_eval=int(eval_split.n_groups),
         out_dir=out_dir,
     )
+    if propagation_stats:
+        (out_dir / "propagation.json").write_text(
+            json.dumps({"parent_map": str(parent_map_path), **propagation_stats}, indent=2)
+        )
     result.to_json(out_dir / "staging.json")
     return result
 
@@ -701,11 +830,13 @@ def _stream_eval(
     writers: list[pq.ParquetWriter],
     schema: pa.Schema,
     batch_size: int,
+    override_labels: np.ndarray | None = None,
 ) -> None:
     cols = ["protein_accession", "label", *feature_cols]
     cols = _present_columns(source_eval_parquet, cols)
     code_maps = {c: {v: i for i, v in enumerate(cat_codes[c])} for c in categorical_cols}
     cat_set = set(categorical_cols)
+    cursor = 0
     for batch in iter_batches(
         source_eval_parquet,
         columns=cols,
@@ -717,7 +848,11 @@ def _stream_eval(
         if m == 0:
             continue
         accessions = batch.column("protein_accession")
-        labels = batch.column("label").to_numpy(zero_copy_only=False).astype(np.int8, copy=False)
+        if override_labels is not None:
+            labels = override_labels[cursor:cursor + m].astype(np.int8, copy=False)
+            cursor += m
+        else:
+            labels = batch.column("label").to_numpy(zero_copy_only=False).astype(np.int8, copy=False)
         feat: dict[str, np.ndarray] = {}
         for c in feature_cols:
             if c not in batch.schema.names:

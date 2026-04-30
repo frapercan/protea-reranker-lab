@@ -138,6 +138,14 @@ def run_experiment(
         categorical_cols = [c for c in cfg.selected_features() if c in set(CATEGORICAL_FEATURES)]
         feature_cols = numeric_cols + categorical_cols
 
+        parent_map_path = None
+        if spec.training.propagate_labels:
+            parent_map_path = ds_dir / "parent_map.json"
+            if not parent_map_path.exists():
+                raise FileNotFoundError(
+                    f"propagate_labels=True but {parent_map_path} not found. "
+                    f"Run scripts/export_parent_map.py with the PROTEA venv first."
+                )
         stage = stage_for_training(
             source_train_parquet=ds_dir / "train.parquet",
             source_eval_parquet=ds_dir / "eval.parquet",
@@ -150,6 +158,7 @@ def run_experiment(
             val_holdout_snapshot=spec.training.val_holdout_snapshot,
             neg_pos_ratio=cfg.neg_pos_ratio,
             seed=cfg.seed,
+            parent_map_path=parent_map_path,
         )
 
         report["split"] = _split_info(spec, stage)
