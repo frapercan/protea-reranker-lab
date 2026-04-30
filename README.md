@@ -3,9 +3,11 @@
 Research sandbox for iterating on the PROTEA GO-term reranker without the full
 PROTEA stack (Postgres / RabbitMQ / workers / API).
 
-Core idea: PROTEA's expensive KNN feature computation is amortised by dumping
-**frozen feature datasets** to parquet. Experiments load parquet → fit LightGBM →
-evaluate → log to Weights & Biases. Iteration cycle drops from hours to minutes.
+Core idea: PROTEA's expensive KNN feature computation is amortised by exporting
+**frozen feature datasets** to parquet. The lab consumes the parquet + manifest,
+fits LightGBM via a **streaming** PyArrow pipeline (no pandas materialisation),
+evaluates per-cell, and publishes the winning booster back to PROTEA's
+`RerankerModel` registry.
 
 ## Repo layout
 
@@ -13,33 +15,36 @@ evaluate → log to Weights & Biases. Iteration cycle drops from hours to minute
 protea-reranker-lab/
 ├── datasets/                  # frozen feature dumps (git-ignored, large)
 │   └── bench-v1-K5/
-│       ├── train.parquet      # (protein, go, label, cat, aspect, snapshot) + features
+│       ├── train.parquet      # 12 multisnap pairs v160→v220
 │       ├── eval.parquet       # hold-out v220→v230, partitioned (cat, aspect)
-│       └── manifest.json      # schema sha, K, embedding, deltas
+│       ├── manifest.json      # schema sha, K, embedding, deltas
+│       └── parent_map.json    # GO is_a/part_of edges (optional, propagation)
 ├── src/protea_reranker_lab/
-│   ├── data.py                # load parquet → (X, y, group_ids)
-│   ├── reranker.py            # feature defs + LightGBM fit (mirrors PROTEA)
-│   ├── evaluate.py            # per-cell CAFA fmax
-│   └── train.py               # wandb-instrumented training entrypoint
+│   ├── data.py                # PyArrow streaming primitives
+│   ├── staging.py             # bucket-sort + cell filter + cat-encode + split
+│   ├── sequences.py           # ParquetFeatureSequence (lgb.Sequence)
+│   ├── reranker.py            # feature defs + streaming fit / predict
+│   ├── evaluate.py            # numpy-only protein-grouped Fmax
+│   ├── runner.py              # ExperimentSpec → run_experiment orchestrator
+│   ├── bootstrap.py           # paired bootstrap CIs vs KNN baseline
+│   ├── experiment.py          # ExperimentSpec / DatasetRef / SweepRef
+│   ├── schemas.py             # ManifestV1 + DatasetSpec + schema_sha helpers
+│   ├── builder.py             # streaming reshape (column prune + snap filter)
+│   └── train.py               # CLI wrapper around run_experiment
 ├── scripts/
-│   ├── dump_dataset.py        # PROTEA DB → parquet (requires PROTEA repo + DB access)
-│   └── upload_model.py        # push winning model → PROTEA reranker_model
-├── sweeps/
-│   ├── baseline.yaml          # Bayesian sweep over LightGBM hparams
-│   └── feature_ablation.yaml  # grid over feature-family drops
-└── experiments/               # YAML configs + logs (committed)
+│   ├── run.py                 # run a single ExperimentSpec YAML
+│   ├── build_study_specs.py   # generate the v9 study YAMLs (F1/F2/F4)
+│   ├── run_study.py           # sequential, resumable phase orchestrator
+│   ├── run_bootstrap_phase.py # F3 paired bootstrap driver
+│   ├── summarise_study.py     # aggregate phase CSVs → SUMMARY.md
+│   └── export_parent_map.py   # one-shot DB → parent_map.json (PROTEA venv)
+└── runs/study_v9/             # study artefacts (git-ignored)
+    ├── replication/           # F1: per-cell CSV + run.json + model.txt
+    ├── ablation/              # F2: leave-one-family-out
+    ├── hparam/                # F4: 3³ hparam grid on nk-bpo
+    ├── bootstrap/             # F3: paired bootstrap CIs
+    └── SUMMARY.md             # auto-generated, drop-in for thesis
 ```
-
-## Status
-
-Scaffold + PROTEA dump hook ready. The heavy path (KNN + all feature families,
-per-cell × multisnap) is produced by the `train_reranker_auto` operation in
-PROTEA with `dump_only=True`, which writes the frozen `train.parquet` +
-`eval.parquet` + `manifest.json` directly into `datasets/`.
-
-The alternate `scripts/dump_dataset.py` in this repo is still useful when you
-already have a ``prediction_set`` + ``evaluation_set`` in the DB and only want
-the eval side (no multisnap history).
 
 ## Quickstart
 
@@ -47,34 +52,43 @@ the eval side (no multisnap history).
 # 1. Install (Python 3.11+)
 pip install -e .
 
-# 2a. Full dump (train+eval, multisnap, from PROTEA)
-#     Run this from the PROTEA repo with its worker stack up:
-cd ~/Thesis/repositories/PROTEA
-python scripts/dump_reranker_dataset.py \
-    --name bench-v1-K5 \
-    --out ~/Thesis/repositories/protea-reranker-lab/datasets/bench-v1-K5 \
-    --train-versions 160 165 170 175 180 185 190 195 200 205 211 215 220 \
-    --test-versions 230 \
-    --k 5 --all-features
+# 2. Dataset must be present at datasets/bench-v1-K5/ (produced by PROTEA
+#    via export_research_dataset). Verify manifest.json + train.parquet +
+#    eval.parquet are there.
 
-# 2b. Eval-only dump (from existing prediction_set + evaluation_set)
-python scripts/dump_dataset.py \
-    --prediction-set 4b734d30-29b3-48ce-a1f7-e9cf3b57156d \
-    --evaluation-set a73cb77c-9adf-4d55-b61f-c0b1bd05be01 \
-    --out datasets/bench-v1-K5/eval.parquet
+# 3. Run a single experiment from a YAML spec
+python scripts/run.py experiments/_generated/study_v9/f1_replication/nk-bpo_seed42.yaml
 
-# 3. Run a single training (no W&B)
-python -m protea_reranker_lab.train \
-    --dataset datasets/bench-v1-K5 \
-    --cell pk-bpo \
-    --num-boost-round 3000
+# 4. Or run a whole study phase (sequential, resumable)
+python scripts/build_study_specs.py     # generate 93 YAMLs
+python scripts/run_study.py f1          # 27 specs replication
+python scripts/run_study.py f2          # 39 specs ablation
+python scripts/run_study.py f4          # 27 specs hparam grid
 
-# 4. Launch a W&B sweep
-wandb sweep sweeps/baseline.yaml   # prints SWEEP_ID
-wandb agent SWEEP_ID               # agent in any shell (can run N in parallel)
+# 5. Bootstrap CIs vs KNN baseline (after f1 winners)
+python scripts/run_bootstrap_phase.py
+
+# 6. Aggregate everything into SUMMARY.md
+python scripts/summarise_study.py
 ```
 
 ## Feature schema
 
 52 features, identical layout to PROTEA's `reranker.py` (vendored constant).
-Categorical encoding is deferred to load time (parquet stores raw strings).
+Categorical encoding is performed at staging time using the lab's own code
+maps; the resulting bucket parquets store int-encoded categoricals plus
+float32 numerics.
+
+## Streaming staging
+
+`stage_for_training` produces sorted-by-protein bucket parquet files plus
+`labels.npy` / `groups.npy` / `proteins.npy`. The trainer reads features
+through `ParquetFeatureSequence` (an `lgb.Sequence` that lazy-loads row
+groups) so RSS during fit stays bounded — peak ≈ 12 GB on the largest cell
+(nk-bpo, 27.6M rows × 52 features).
+
+Optional True-Path-Rule label propagation (`propagate_labels=True` +
+`parent_map.json`) is **off by default** — the bench-v1-K5 dataset is
+generated with PROTEA's reconciled-mode evaluation, which already applies
+ancestor closure before producing `gt_pairs`. Re-propagating in the lab
+causes double-propagation and degrades fmax.
