@@ -485,6 +485,74 @@ def _materialise_split(
     )
 
 
+def stage_eval_only(
+    *,
+    source_eval_parquet: Path,
+    cell: tuple[str, str],
+    feature_cols: list[str],
+    categorical_cols: list[str],
+    out_dir: Path,
+    eval_snapshot_pair: str | None = None,
+    bucket_count: int = 32,
+    batch_size: int = 200_000,
+) -> StagedSplit:
+    """Stage only the eval split for a cell — no train/val machinery.
+
+    Intended for downstream consumers (bootstrap CI, cafaeval re-validation)
+    that need eval features in the same row order the trainer's
+    ``predictions.parquet`` was written in. Categorical code maps are derived
+    from the eval rows themselves (no train cross-reference); for column-set
+    consistency only NUMERIC_FEATURES need exact alignment, which they get.
+    """
+    cat, asp = cell[0].lower(), cell[1].lower()
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    schema = _build_pass1_schema(feature_cols, categorical_cols)
+
+    cat_seen: dict[str, set] = {c: set() for c in categorical_cols}
+    if categorical_cols:
+        for batch in iter_batches(
+            source_eval_parquet,
+            columns=["protein_accession", *categorical_cols],
+            category=cat, aspect=asp,
+            snapshot_pair=eval_snapshot_pair,
+            batch_size=batch_size,
+        ):
+            for c in categorical_cols:
+                if c not in batch.schema.names:
+                    continue
+                for v in pc.unique(batch.column(c)).to_pylist():
+                    if v is not None:
+                        cat_seen[c].add(v)
+    cat_codes = {c: sorted(cat_seen[c]) for c in categorical_cols}
+
+    with tempfile.TemporaryDirectory(prefix="stage_eval_", dir=out_dir) as tmp:
+        tmp_dir = Path(tmp)
+        writers = _open_bucket_writers(tmp_dir, schema, bucket_count, "eval")
+        _stream_eval(
+            source_eval_parquet=source_eval_parquet,
+            category=cat, aspect=asp,
+            snapshot_pair=eval_snapshot_pair,
+            feature_cols=feature_cols,
+            categorical_cols=categorical_cols,
+            cat_codes=cat_codes,
+            bucket_count=bucket_count,
+            writers=writers,
+            schema=schema,
+            batch_size=batch_size,
+        )
+        split = _materialise_split(
+            bucket_writers=writers,
+            bucket_dir=tmp_dir,
+            bucket_count=bucket_count,
+            out_dir=out_dir,
+            name="eval",
+        )
+    if split is None:
+        raise RuntimeError(f"eval-only staging produced no rows for cell {cat}-{asp}")
+    return split
+
+
 def stage_for_training(
     *,
     source_train_parquet: Path,

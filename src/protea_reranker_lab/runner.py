@@ -296,23 +296,20 @@ def _dataset_lineage(spec: ExperimentSpec, manifest_path: Path) -> dict[str, Any
 def _features_info(spec: ExperimentSpec, cfg: TrainConfig) -> dict[str, Any]:
     if spec.dataset.spec is not None:
         families = spec.dataset.spec.enabled_feature_families
-        drop = list(spec.dataset.spec.drop_features)
+        spec_drop = list(spec.dataset.spec.drop_features)
     else:
-        families = None
-        drop = []
-    cols = required_columns(families, drop)
-    feature_cols = [c for c in cols if c not in (
-        "protein_accession", "go_term_id", "label",
-        "category", "aspect", "snapshot_pair",
-    )]
+        families = cfg.enabled_feature_families
+        spec_drop = []
+    drop = sorted(set(spec_drop) | set(cfg.drop_features))
+    selected = cfg.selected_features()
     return {
         "families_enabled": families,
         "families_available": sorted(FEATURE_FAMILIES),
         "drop_features": drop,
-        "feature_count": len(feature_cols),
-        "feature_columns": feature_cols,
-        "selected_numeric_count": len([c for c in cfg.selected_features() if c in set(NUMERIC_FEATURES)]),
-        "selected_categorical_count": len([c for c in cfg.selected_features() if c in set(CATEGORICAL_FEATURES)]),
+        "feature_count": len(selected),
+        "feature_columns": selected,
+        "selected_numeric_count": len([c for c in selected if c in set(NUMERIC_FEATURES)]),
+        "selected_categorical_count": len([c for c in selected if c in set(CATEGORICAL_FEATURES)]),
     }
 
 
