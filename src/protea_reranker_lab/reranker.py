@@ -4,6 +4,10 @@ Kept as a standalone module (not a git submodule of PROTEA) to keep this repo
 installable without the PROTEA dependency tree. The schema is version-pinned
 to PROTEA commit tagged in the dataset manifest — if PROTEA's feature set
 changes, bump the schema here and regenerate the dump.
+
+Training is **streaming**: ``fit`` consumes :class:`lgb.Sequence` instances
+(see :mod:`protea_reranker_lab.sequences`) plus pre-computed numpy label /
+group arrays. No pandas DataFrame is materialised end-to-end.
 """
 
 from __future__ import annotations
@@ -13,7 +17,7 @@ from typing import Any
 
 import lightgbm as lgb
 import numpy as np
-import pandas as pd
+
 
 NUMERIC_FEATURES: list[str] = [
     "distance",
@@ -39,6 +43,9 @@ ALL_FEATURES: list[str] = NUMERIC_FEATURES + CATEGORICAL_FEATURES
 FEATURE_FAMILIES: dict[str, list[str]] = {
     "knn": ["distance", "k_position", "vote_count", "neighbor_vote_fraction",
             "neighbor_min_distance", "neighbor_mean_distance", "neighbor_distance_std"],
+    "knn_distance": ["distance", "neighbor_min_distance", "neighbor_mean_distance",
+                     "neighbor_distance_std"],
+    "knn_vote": ["k_position", "vote_count", "neighbor_vote_fraction"],
     "alignment_nw": ["identity_nw", "similarity_nw", "alignment_score_nw",
                      "gaps_pct_nw", "alignment_length_nw"],
     "alignment_sw": ["identity_sw", "similarity_sw", "alignment_score_sw",
@@ -58,7 +65,7 @@ FEATURE_FAMILIES: dict[str, list[str]] = {
 
 @dataclass
 class TrainConfig:
-    objective: str = "lambdarank"            # or "binary"
+    objective: str = "lambdarank"
     num_boost_round: int = 5000
     early_stopping_rounds: int | None = 50
     learning_rate: float = 0.05
@@ -67,10 +74,10 @@ class TrainConfig:
     feature_fraction: float = 0.9
     bagging_fraction: float = 0.9
     bagging_freq: int = 5
-    neg_pos_ratio: float | None = None        # downsample negatives
+    neg_pos_ratio: float | None = None
     val_fraction: float = 0.2
     seed: int = 42
-    enabled_feature_families: list[str] | None = None  # None = use all
+    enabled_feature_families: list[str] | None = None
     drop_features: list[str] = field(default_factory=list)
 
     def selected_features(self) -> list[str]:
@@ -82,42 +89,26 @@ class TrainConfig:
                 feats.extend(FEATURE_FAMILIES[fam])
         return [f for f in feats if f not in self.drop_features]
 
-
-def encode_categoricals(df: pd.DataFrame, cat_cols: list[str]) -> pd.DataFrame:
-    """Label-encode string categoricals in place (missing → -1)."""
-    out = df.copy()
-    for col in cat_cols:
-        if col not in out.columns:
-            continue
-        s = out[col].astype("object").where(out[col].notna(), None)
-        codes, _ = pd.factorize(s, use_na_sentinel=True)
-        out[col] = codes  # int64
-    return out
-
-
-def prepare_matrix(
-    df: pd.DataFrame, cfg: TrainConfig
-) -> tuple[pd.DataFrame, list[str], list[str]]:
-    feats = cfg.selected_features()
-    used_num = [f for f in feats if f in NUMERIC_FEATURES and f in df.columns]
-    used_cat = [f for f in feats if f in CATEGORICAL_FEATURES and f in df.columns]
-    X = encode_categoricals(df[used_num + used_cat], used_cat)
-    for col in used_num:
-        if X[col].dtype == object:
-            X[col] = pd.to_numeric(X[col], errors="coerce")
-    return X, used_num, used_cat
+    def split_features(self) -> tuple[list[str], list[str]]:
+        feats = self.selected_features()
+        cat_set = set(CATEGORICAL_FEATURES)
+        numeric = [f for f in feats if f not in cat_set]
+        categorical = [f for f in feats if f in cat_set]
+        return numeric, categorical
 
 
 def fit(
-    df_train: pd.DataFrame,
-    df_val: pd.DataFrame | None,
+    train_seq: lgb.Sequence | list[lgb.Sequence],
+    train_labels: np.ndarray,
+    train_groups: np.ndarray | None,
+    val_seq: lgb.Sequence | list[lgb.Sequence] | None,
+    val_labels: np.ndarray | None,
+    val_groups: np.ndarray | None,
     cfg: TrainConfig,
     *,
-    group_col: str = "protein_accession",
+    feature_names: list[str],
+    categorical_features: list[str],
 ) -> tuple[lgb.Booster, dict[str, Any]]:
-    X_tr, used_num, used_cat = prepare_matrix(df_train, cfg)
-    y_tr = df_train["label"].to_numpy()
-
     params: dict[str, Any] = {
         "objective": cfg.objective,
         "learning_rate": cfg.learning_rate,
@@ -134,20 +125,28 @@ def fit(
         params["ndcg_eval_at"] = [5, 10]
         params["label_gain"] = [0, 1]
 
-    train_groups = _groups(df_train, group_col) if cfg.objective == "lambdarank" else None
+    train_seq_list = train_seq if isinstance(train_seq, list) else [train_seq]
     train_ds = lgb.Dataset(
-        X_tr, label=y_tr, group=train_groups,
-        categorical_feature=used_cat, free_raw_data=False,
+        train_seq_list,
+        label=train_labels,
+        group=train_groups if cfg.objective == "lambdarank" else None,
+        feature_name=feature_names,
+        categorical_feature=categorical_features or "auto",
+        free_raw_data=True,
     )
     valid_sets = [train_ds]
     valid_names = ["train"]
-    if df_val is not None and len(df_val):
-        X_va, _, _ = prepare_matrix(df_val, cfg)
-        y_va = df_val["label"].to_numpy()
-        val_groups = _groups(df_val, group_col) if cfg.objective == "lambdarank" else None
+
+    if val_seq is not None and val_labels is not None and len(val_labels):
+        val_seq_list = val_seq if isinstance(val_seq, list) else [val_seq]
         val_ds = lgb.Dataset(
-            X_va, label=y_va, group=val_groups,
-            categorical_feature=used_cat, reference=train_ds, free_raw_data=False,
+            val_seq_list,
+            label=val_labels,
+            group=val_groups if cfg.objective == "lambdarank" else None,
+            feature_name=feature_names,
+            categorical_feature=categorical_features or "auto",
+            reference=train_ds,
+            free_raw_data=True,
         )
         valid_sets.append(val_ds)
         valid_names.append("val")
@@ -165,20 +164,28 @@ def fit(
     metrics = {
         "best_iteration": booster.best_iteration or booster.current_iteration(),
         "feature_importance": dict(zip(
-            booster.feature_name(), booster.feature_importance(importance_type="gain"), strict=False
+            booster.feature_name(),
+            booster.feature_importance(importance_type="gain"),
+            strict=False,
         )),
     }
     return booster, metrics
 
 
-def _groups(df: pd.DataFrame, group_col: str) -> np.ndarray:
-    """LightGBM expects ``group`` as contiguous sizes. Requires df sorted by group_col."""
-    sizes = df.groupby(group_col, sort=False).size().to_numpy()
-    return sizes
-
-
-def predict(booster: lgb.Booster, df: pd.DataFrame, cfg: TrainConfig) -> np.ndarray:
-    X, _, _ = prepare_matrix(df, cfg)
-    feat_names = booster.feature_name()
-    X = X[[c for c in feat_names if c in X.columns]]
-    return booster.predict(X, num_iteration=booster.best_iteration or booster.current_iteration())
+def predict_streaming(
+    booster: lgb.Booster,
+    eval_seq: lgb.Sequence,
+    *,
+    batch_size: int = 100_000,
+) -> np.ndarray:
+    """Score the eval Sequence in batches; returns one float32 per row."""
+    n = len(eval_seq)
+    out = np.empty(n, dtype=np.float32)
+    if n == 0:
+        return out
+    n_iter = booster.best_iteration or booster.current_iteration()
+    for start in range(0, n, batch_size):
+        stop = min(start + batch_size, n)
+        x = eval_seq[start:stop]
+        out[start:stop] = booster.predict(x, num_iteration=n_iter)
+    return out

@@ -71,8 +71,10 @@ class SweepRef(BaseModel):
 
     @model_validator(mode="after")
     def _needs_config(self) -> "SweepRef":
-        if self.backend != "none" and self.config is None:
-            raise ValueError(f"sweep backend='{self.backend}' requires 'config' path")
+        if self.backend == "local_grid" and self.config is None:
+            raise ValueError("sweep backend='local_grid' requires 'config' path")
+        if self.backend == "wandb" and self.project is None:
+            raise ValueError("sweep backend='wandb' requires 'project'")
         return self
 
 
@@ -86,6 +88,7 @@ class ExperimentSpec(BaseModel):
     sweep: SweepRef = Field(default_factory=SweepRef)
     output_dir: Path | None = None
     tags: list[str] = Field(default_factory=list)
+    keep_staging: bool = False
 
     model_config = {"extra": "forbid"}
 

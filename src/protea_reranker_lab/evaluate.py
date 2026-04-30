@@ -1,40 +1,67 @@
-"""Per-cell CAFA Fmax on held-out predictions.
+"""Per-cell CAFA Fmax on numpy arrays.
 
-Mirrors PROTEA's ``run_cafa_evaluation`` fmax logic but takes pandas input
-directly so it works on parquet dumps. For a full apples-to-apples number
-against PROTEA, use ``cafaeval`` externally — this is the fast in-process
-metric used during sweeps.
+Mirrors PROTEA's ``run_cafa_evaluation`` fmax logic but operates on flat
+numpy arrays plus a contiguous ``group_sizes`` vector — no pandas, no
+DataFrame materialisation. Used after :func:`predict_streaming`.
 """
 
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 
 
-def fmax_binary(y_true: np.ndarray, y_score: np.ndarray, n_thresholds: int = 101) -> float:
-    """Protein-averaged Fmax as used in CAFA: sweeps thresholds, averages per
-    protein precision/recall, returns max F1 over the sweep.
+def fmax_per_protein_group(
+    scores: np.ndarray,
+    labels: np.ndarray,
+    group_sizes: np.ndarray,
+    *,
+    n_thresholds: int = 101,
+) -> float:
+    """Protein-averaged Fmax.
 
-    Expects ``y_true`` binary labels and ``y_score`` continuous scores, both
-    flat over (protein × candidate GO term). The function itself does NOT
-    group by protein — the caller should pass a single cell's predictions,
-    or call ``fmax_per_protein_group`` for the protein-averaged variant.
+    Inputs are flat row-aligned arrays (rows sorted by protein, contiguous
+    per protein) and ``group_sizes`` gives the number of rows per protein.
     """
-    if len(y_true) == 0:
+    if scores.size == 0 or group_sizes.size == 0:
         return 0.0
-    thresholds = np.linspace(0.0, 1.0, n_thresholds)
-    pos = y_true > 0
+
+    edges = np.empty(group_sizes.size + 1, dtype=np.int64)
+    edges[0] = 0
+    np.cumsum(group_sizes, out=edges[1:])
+
+    lo, hi = float(scores.min()), float(scores.max())
+    thresholds = np.array([lo]) if hi <= lo else np.linspace(lo, hi, n_thresholds)
+
+    starts = edges[:-1]
+    stops = edges[1:]
+
+    pos_mask = labels > 0
+    n_pos_per_group = np.add.reduceat(pos_mask.astype(np.int64), starts)
+    has_pos = n_pos_per_group > 0
+
     best = 0.0
     for t in thresholds:
-        pred = y_score >= t
-        tp = np.sum(pred & pos)
-        if tp == 0:
+        pred = scores >= t
+        n_pred_per_group = np.add.reduceat(pred.astype(np.int64), starts)
+        tp_per_group = np.add.reduceat((pred & pos_mask).astype(np.int64), starts)
+
+        with np.errstate(divide="ignore", invalid="ignore"):
+            precisions = np.where(
+                n_pred_per_group > 0,
+                tp_per_group / np.maximum(n_pred_per_group, 1),
+                0.0,
+            )
+            recalls = np.where(
+                has_pos,
+                tp_per_group / np.maximum(n_pos_per_group, 1),
+                0.0,
+            )
+
+        m_pred = n_pred_per_group > 0
+        if not m_pred.any():
             continue
-        fp = np.sum(pred & ~pos)
-        fn = np.sum(~pred & pos)
-        p = tp / (tp + fp) if (tp + fp) else 0.0
-        r = tp / (tp + fn) if (tp + fn) else 0.0
+        p = float(precisions[m_pred].mean()) if m_pred.any() else 0.0
+        r = float(recalls[has_pos].mean()) if has_pos.any() else 0.0
         if p + r > 0:
             f = 2 * p * r / (p + r)
             if f > best:
@@ -42,57 +69,25 @@ def fmax_binary(y_true: np.ndarray, y_score: np.ndarray, n_thresholds: int = 101
     return float(best)
 
 
-def fmax_per_protein_group(
-    df: pd.DataFrame, score_col: str = "score", *, n_thresholds: int = 101
+def fmax_binary(
+    y_true: np.ndarray, y_score: np.ndarray, n_thresholds: int = 101,
 ) -> float:
-    """Protein-averaged Fmax: for each threshold, compute precision and recall
-    per protein, then average, then take the max F1 over the sweep.
-
-    ``df`` must have ``protein_accession``, ``label``, and ``score_col`` columns.
-    """
-    if df.empty:
+    if y_true.size == 0:
         return 0.0
-    scores = df[score_col].to_numpy()
-    lo, hi = float(scores.min()), float(scores.max())
-    if hi <= lo:
-        thresholds = np.array([lo])
-    else:
-        thresholds = np.linspace(lo, hi, n_thresholds)
-
-    grouped = df.groupby("protein_accession", sort=False)
-    prot_pos = grouped["label"].sum().to_numpy()
-    any_positive = prot_pos > 0
-
+    thresholds = np.linspace(0.0, 1.0, n_thresholds)
+    pos = y_true > 0
     best = 0.0
     for t in thresholds:
-        pred = df[score_col] >= t
-        tp = df.loc[pred, :].groupby("protein_accession", sort=False)["label"].sum()
-        n_pred = pred.groupby(df["protein_accession"], sort=False).sum()
-        precisions = (tp / n_pred).replace([np.inf, np.nan], 0.0)
-        if n_pred.sum() == 0:
+        pred = y_score >= t
+        tp = int((pred & pos).sum())
+        if tp == 0:
             continue
-        recalls = (tp / grouped["label"].sum()).replace([np.inf, np.nan], 0.0)
-        p = precisions[n_pred > 0].mean() if (n_pred > 0).any() else 0.0
-        r = recalls[any_positive].mean() if any_positive.any() else 0.0
+        fp = int((pred & ~pos).sum())
+        fn = int((~pred & pos).sum())
+        p = tp / (tp + fp) if (tp + fp) else 0.0
+        r = tp / (tp + fn) if (tp + fn) else 0.0
         if p + r > 0:
             f = 2 * p * r / (p + r)
             if f > best:
-                best = float(f)
-    return best
-
-
-def eval_cells(
-    df: pd.DataFrame, score_col: str = "score", *, n_thresholds: int = 101
-) -> dict[tuple[str, str], float]:
-    """Compute Fmax for every (category, aspect) cell present in ``df``."""
-    out: dict[tuple[str, str], float] = {}
-    for (cat, asp), sub in df.groupby(["category", "aspect"], sort=False):
-        out[(cat, asp)] = fmax_per_protein_group(
-            sub, score_col=score_col, n_thresholds=n_thresholds
-        )
-    return out
-
-
-def avg_fmax(cells: dict[tuple[str, str], float]) -> float:
-    vals = [v for v in cells.values() if v is not None]
-    return float(sum(vals) / len(vals)) if vals else 0.0
+                best = f
+    return float(best)

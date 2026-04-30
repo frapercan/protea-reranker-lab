@@ -1,5 +1,9 @@
 """Turn an :class:`ExperimentSpec` into results — with full traceability.
 
+Streaming end-to-end: source parquet → :mod:`staging` (filter + cell + split
++ cat-encode + bucket-sort) → :class:`ParquetFeatureSequence` → LightGBM
+(``free_raw_data=True``) → batched ``predict_streaming`` → numpy fmax.
+
 Artefacts written to ``output_dir`` on every launch (``run.json`` and
 ``spec.yaml`` are written *at start* so a crash still leaves a trace):
 
@@ -9,9 +13,7 @@ Artefacts written to ``output_dir`` on every launch (``run.json`` and
                            features used, metrics, feature_importance
 - ``model.txt``          — LightGBM booster (only on success)
 - ``predictions.parquet``— eval rows + score column (only on success)
-
-W&B sweep backends are deferred: they keep using ``train.py`` under
-``wandb agent`` until we have a reason to unify.
+- ``staging/…``          — per-cell sorted bucket parquets + labels/groups npy
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ import dataclasses
 import json
 import os
 import platform
+import shutil
 import subprocess
 import sys
 import time
@@ -27,15 +30,26 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+import pyarrow as pa
+import pyarrow.parquet as pq
+
 from .builder import build_dataset
-from .data import load_partition, split_train_val, split_train_val_temporal
 from .evaluate import fmax_per_protein_group
 from .experiment import ExperimentSpec, ModelSpec, TrainingSpec
-from .reranker import FEATURE_FAMILIES, TrainConfig, fit, predict
+from .reranker import (
+    CATEGORICAL_FEATURES,
+    FEATURE_FAMILIES,
+    NUMERIC_FEATURES,
+    TrainConfig,
+    fit,
+    predict_streaming,
+)
 from .schemas import ManifestV1, required_columns
+from .sequences import ParquetFeatureSequence
+from .staging import StageResult, stage_for_training
 
 
-# Fields that live on TrainingSpec (rest of the overrides target model.defaults).
 _TRAINING_FIELDS: frozenset[str] = frozenset({
     "cell", "val_strategy", "val_fraction",
     "val_holdout_snapshot", "neg_pos_ratio", "seed",
@@ -79,7 +93,6 @@ def run_experiment(
             tags=spec.tags or None,
             config={"spec_name": spec.name, "spec_hash": spec.hash(), **overrides},
         )
-        # wandb-agent-injected params land in wandb.config; let them override.
         for k, v in dict(wandb_run.config).items():
             if k in ("spec_name", "spec_hash"):
                 continue
@@ -91,6 +104,7 @@ def run_experiment(
     run_id = _make_run_id(spec)
     out_dir = Path(spec.output_dir) if spec.output_dir else Path("runs") / run_id
     out_dir.mkdir(parents=True, exist_ok=True)
+    staging_root = out_dir / "staging"
 
     report: dict[str, Any] = {
         "run_id": run_id,
@@ -115,24 +129,30 @@ def run_experiment(
 
         cat, asp = _split_cell(spec.training.cell)
         ds_dir = manifest_path.parent
-        df_tr_all = load_partition(ds_dir / "train.parquet", category=cat, aspect=asp)
-        df_eval = load_partition(ds_dir / "eval.parquet", category=cat, aspect=asp)
-
         cfg = _build_train_config(spec)
-        df_tr_all = _maybe_downsample_negatives(df_tr_all, cfg.neg_pos_ratio, cfg.seed)
-        df_tr, df_val = _split(df_tr_all, spec, cfg)
-        _check_nonempty(df_tr, spec, df_tr_all)
-
         report["resolved_hparams"] = dataclasses.asdict(cfg)
-        report["features"] = _features_info(spec)
-        report["split"] = {
-            "strategy": spec.training.val_strategy,
-            "val_holdout_snapshot": spec.training.val_holdout_snapshot,
-            "n_train": int(len(df_tr)),
-            "n_val": int(len(df_val)),
-            "n_eval": int(len(df_eval)),
-            "positive_rate_train": float(df_tr["label"].mean()) if len(df_tr) else 0.0,
-        }
+        report["features"] = _features_info(spec, cfg)
+        _dump_report(out_dir, report)
+
+        numeric_cols = [c for c in cfg.selected_features() if c in set(NUMERIC_FEATURES)]
+        categorical_cols = [c for c in cfg.selected_features() if c in set(CATEGORICAL_FEATURES)]
+        feature_cols = numeric_cols + categorical_cols
+
+        stage = stage_for_training(
+            source_train_parquet=ds_dir / "train.parquet",
+            source_eval_parquet=ds_dir / "eval.parquet",
+            cell=(cat, asp),
+            feature_cols=feature_cols,
+            categorical_cols=categorical_cols,
+            out_dir=staging_root / f"{cat}-{asp}",
+            val_strategy=spec.training.val_strategy,
+            val_fraction=cfg.val_fraction,
+            val_holdout_snapshot=spec.training.val_holdout_snapshot,
+            neg_pos_ratio=cfg.neg_pos_ratio,
+            seed=cfg.seed,
+        )
+
+        report["split"] = _split_info(spec, stage)
         _dump_report(out_dir, report)
         if wandb_run is not None:
             wandb_run.config.update(
@@ -140,14 +160,42 @@ def run_experiment(
                 allow_val_change=True,
             )
 
-        booster, train_metrics = fit(df_tr, df_val if len(df_val) else None, cfg)
+        train_seq = ParquetFeatureSequence(
+            [str(p) for p in stage.train.bucket_paths], feature_cols,
+        )
+        train_labels = np.load(stage.train.labels_path)
+        train_groups = np.load(stage.train.groups_path)
+
+        val_seq = val_labels = val_groups = None
+        if stage.val is not None and stage.val.n_rows > 0:
+            val_seq = ParquetFeatureSequence(
+                [str(p) for p in stage.val.bucket_paths], feature_cols,
+            )
+            val_labels = np.load(stage.val.labels_path)
+            val_groups = np.load(stage.val.groups_path)
+
+        booster, train_metrics = fit(
+            train_seq, train_labels, train_groups,
+            val_seq, val_labels, val_groups,
+            cfg,
+            feature_names=feature_cols,
+            categorical_features=categorical_cols,
+        )
         booster.save_model(str(out_dir / "model.txt"))
 
-        scores = predict(booster, df_eval, cfg)
-        df_eval = df_eval.assign(score=scores)
-        fmax = fmax_per_protein_group(df_eval, score_col="score") if len(df_eval) else 0.0
-        df_eval[["protein_accession", "go_term_id", "label", "score"]].to_parquet(
-            out_dir / "predictions.parquet", index=False
+        eval_seq = ParquetFeatureSequence(
+            [str(p) for p in stage.eval.bucket_paths], feature_cols,
+        )
+        eval_labels = np.load(stage.eval.labels_path)
+        eval_groups = np.load(stage.eval.groups_path)
+        eval_proteins = np.load(stage.eval.proteins_path, allow_pickle=True)
+
+        scores = predict_streaming(booster, eval_seq)
+        fmax = fmax_per_protein_group(scores, eval_labels, eval_groups)
+        _write_predictions(
+            out_dir / "predictions.parquet",
+            scores=scores, labels=eval_labels,
+            groups=eval_groups, proteins_per_group=eval_proteins,
         )
 
         report["metrics"] = {
@@ -167,6 +215,9 @@ def run_experiment(
             wandb_run.summary["test_fmax"] = float(fmax)
             wandb_run.summary["best_iteration"] = int(train_metrics["best_iteration"])
             wandb_run.save(str(out_dir / "run.json"))
+
+        if not spec.keep_staging:
+            shutil.rmtree(staging_root, ignore_errors=True)
     except Exception as e:
         report["status"] = "failed"
         report["error"] = repr(e)
@@ -204,7 +255,7 @@ def _environment_info() -> dict[str, Any]:
 def _git_sha() -> str | None:
     try:
         return subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL, text=True
+            ["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL, text=True,
         ).strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
         return None
@@ -213,7 +264,7 @@ def _git_sha() -> str | None:
 def _git_dirty() -> bool | None:
     try:
         out = subprocess.check_output(
-            ["git", "status", "--porcelain"], stderr=subprocess.DEVNULL, text=True
+            ["git", "status", "--porcelain"], stderr=subprocess.DEVNULL, text=True,
         )
         return bool(out.strip())
     except (subprocess.CalledProcessError, FileNotFoundError):
@@ -242,9 +293,7 @@ def _dataset_lineage(spec: ExperimentSpec, manifest_path: Path) -> dict[str, Any
     return info
 
 
-def _features_info(spec: ExperimentSpec) -> dict[str, Any]:
-    # Use the dataset-level families (what the parquet actually contains)
-    # rather than re-deriving from reranker.py.
+def _features_info(spec: ExperimentSpec, cfg: TrainConfig) -> dict[str, Any]:
     if spec.dataset.spec is not None:
         families = spec.dataset.spec.enabled_feature_families
         drop = list(spec.dataset.spec.drop_features)
@@ -262,7 +311,27 @@ def _features_info(spec: ExperimentSpec) -> dict[str, Any]:
         "drop_features": drop,
         "feature_count": len(feature_cols),
         "feature_columns": feature_cols,
+        "selected_numeric_count": len([c for c in cfg.selected_features() if c in set(NUMERIC_FEATURES)]),
+        "selected_categorical_count": len([c for c in cfg.selected_features() if c in set(CATEGORICAL_FEATURES)]),
     }
+
+
+def _split_info(spec: ExperimentSpec, stage: StageResult) -> dict[str, Any]:
+    info = {
+        "strategy": spec.training.val_strategy,
+        "val_holdout_snapshot": spec.training.val_holdout_snapshot,
+        "n_train": int(stage.train.n_rows),
+        "n_val": int(stage.val.n_rows) if stage.val else 0,
+        "n_eval": int(stage.eval.n_rows),
+        "n_train_groups": int(stage.train.n_groups),
+        "n_val_groups": int(stage.val.n_groups) if stage.val else 0,
+        "n_eval_groups": int(stage.eval.n_groups),
+    }
+    train_labels = np.load(stage.train.labels_path)
+    info["positive_rate_train"] = (
+        float(train_labels.mean()) if train_labels.size else 0.0
+    )
+    return info
 
 
 def _split_cell(cell: str) -> tuple[str, str]:
@@ -272,7 +341,6 @@ def _split_cell(cell: str) -> tuple[str, str]:
 
 def _build_train_config(spec: ExperimentSpec) -> TrainConfig:
     defaults = dict(spec.model.defaults)
-    # training-level fields always override model defaults (more specific).
     defaults["seed"] = spec.training.seed
     defaults["val_fraction"] = spec.training.val_fraction
     if spec.training.neg_pos_ratio is not None:
@@ -281,40 +349,21 @@ def _build_train_config(spec: ExperimentSpec) -> TrainConfig:
     return TrainConfig(**{k: v for k, v in defaults.items() if k in allowed})
 
 
-def _maybe_downsample_negatives(df, ratio, seed):
-    if ratio is None or ratio <= 0:
-        return df
-    pos = df[df["label"] == 1]
-    neg = df[df["label"] == 0]
-    target = int(len(pos) * ratio)
-    if target >= len(neg):
-        return df
-    import pandas as pd
-    neg_ds = neg.sample(n=target, random_state=seed)
-    return pd.concat([pos, neg_ds]).sort_values("protein_accession", kind="stable").reset_index(drop=True)
-
-
-def _split(df_tr_all, spec: ExperimentSpec, cfg: TrainConfig):
-    strat = spec.training.val_strategy
-    if strat == "none":
-        return df_tr_all, df_tr_all.iloc[0:0]
-    if strat == "temporal":
-        assert spec.training.val_holdout_snapshot
-        return split_train_val_temporal(df_tr_all, spec.training.val_holdout_snapshot)
-    return split_train_val(df_tr_all, cfg.val_fraction, seed=cfg.seed)
-
-
-def _check_nonempty(df_tr, spec: ExperimentSpec, df_tr_all) -> None:
-    if len(df_tr):
-        return
-    pairs = sorted(df_tr_all["snapshot_pair"].unique()) if "snapshot_pair" in df_tr_all.columns else []
-    raise ValueError(
-        f"training set empty after split "
-        f"(strategy={spec.training.val_strategy}, holdout={spec.training.val_holdout_snapshot}); "
-        f"train.parquet contains snapshot_pairs={pairs} — "
-        "either pick a holdout outside this set, use val_strategy=protein_group, "
-        "or use a dataset with multiple train snapshot_pairs."
-    )
+def _write_predictions(
+    path: Path,
+    *,
+    scores: np.ndarray,
+    labels: np.ndarray,
+    groups: np.ndarray,
+    proteins_per_group: np.ndarray,
+) -> None:
+    proteins_per_row = np.repeat(proteins_per_group, groups)
+    table = pa.table({
+        "protein_accession": pa.array(proteins_per_row.astype(object)),
+        "label": pa.array(labels, type=pa.int8()),
+        "score": pa.array(scores, type=pa.float32()),
+    })
+    pq.write_table(table, str(path), compression="zstd")
 
 
 def _dump_report(out_dir: Path, report: dict[str, Any]) -> None:
@@ -322,11 +371,6 @@ def _dump_report(out_dir: Path, report: dict[str, Any]) -> None:
 
 
 def _apply_overrides(spec: ExperimentSpec, overrides: dict[str, Any]) -> ExperimentSpec:
-    """Route overrides into training (for training-level fields) or model.defaults.
-
-    Pydantic revalidates via constructor to catch e.g. val_strategy changes
-    that now require a val_holdout_snapshot.
-    """
     training_over = {k: v for k, v in overrides.items() if k in _TRAINING_FIELDS}
     model_over = {k: v for k, v in overrides.items() if k not in _TRAINING_FIELDS}
     new_training = TrainingSpec(**{**spec.training.model_dump(), **training_over})
