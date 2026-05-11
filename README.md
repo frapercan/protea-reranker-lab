@@ -93,6 +93,68 @@ generated with PROTEA's reconciled-mode evaluation, which already applies
 ancestor closure before producing `gt_pairs`. Re-propagating in the lab
 causes double-propagation and degrades fmax.
 
+## Test
+
+The lab ships without a formal `pytest` test suite (it is a research
+sandbox). Functional correctness is guarded by the study pipeline itself:
+
+```bash
+# Smoke: run a single lightweight experiment spec
+python scripts/run.py experiments/example.yaml
+
+# End-to-end study phases (requires the bench-v1-K5 dataset at datasets/)
+python scripts/run_study.py f1      # 27 replication specs
+python scripts/summarise_study.py   # aggregate results to SUMMARY.md
+```
+
+The `example.yaml` experiment spec is designed to complete in under 5 minutes
+on CPU with a small parquet slice. It validates the full data pipeline
+(stage, fit, evaluate, summarise) without needing the full bench-v1-K5 dataset.
+
+Linting and type checks:
+
+```bash
+pip install -e ".[dev]"
+ruff check src scripts
+mypy src
+```
+
+## Contributing
+
+Contributions are welcome from research collaborators.
+
+**Branch strategy:** all changes go to `develop`; `main` tracks stable
+releases only.
+
+```bash
+git clone https://github.com/frapercan/protea-reranker-lab.git
+cd protea-reranker-lab
+git checkout develop
+git checkout -b feature/my-feature
+
+pip install -e ".[dev]"
+
+# Make your changes, then verify locally:
+python scripts/run.py experiments/example.yaml
+ruff check src scripts
+mypy src
+
+# Open a pull request targeting develop
+```
+
+Key constraints:
+- Dataset artefacts (`datasets/`, `runs/`) are git-ignored. Never commit
+  large parquet files or trained models.
+- The lab is a consumer of PROTEA's artifact store, not a replacement.
+  Changes that require PROTEA API modifications belong in PROTEA, not here.
+- PROTEA's `feature_schema_sha` must match the lab's feature layout. If
+  you add or rename features, update both repos in a coordinated PR pair
+  and bump `protea-contracts` accordingly.
+
+## License
+
+MIT. See `LICENSE`.
+
 <!-- protea-stack:start -->
 
 ## Repositories in the PROTEA stack
