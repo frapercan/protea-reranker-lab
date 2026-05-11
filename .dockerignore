@@ -1,0 +1,43 @@
+# Version control
+.git
+.gitignore
+.github
+
+# Python build artefacts
+__pycache__
+*.py[cod]
+*$py.class
+*.egg-info
+.eggs
+build
+dist
+.venv
+venv
+env
+
+# Test / lint / type caches
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+coverage.xml
+
+# Local lab artefacts (training outputs, datasets, wandb runs, logs).
+# These are huge and per-machine; the image ships scripts only.
+runs
+datasets
+experiments
+wandb
+logs
+
+# Editor
+.idea
+.vscode
+*.swp
+
+# OS
+.DS_Store
+
+# Project local
+*.log
