@@ -9,6 +9,15 @@ fits LightGBM via a **streaming** PyArrow pipeline (no pandas materialisation),
 evaluates per-cell, and publishes the winning booster back to PROTEA's
 `RerankerModel` registry.
 
+**Status:** v0.2.0 (active research sandbox, pre-1.0; no stable public API; results published to PROTEA via `POST /reranker-models/import-by-reference`).
+See the [PROTEA stack architecture](https://github.com/frapercan/PROTEA#repositories-in-the-protea-stack) for where this package fits.
+
+**Install + smoke test:**
+```bash
+pip install -e .
+python scripts/run.py experiments/example.yaml
+```
+
 ## Repo layout
 
 ```
@@ -84,11 +93,11 @@ float32 numerics.
 `stage_for_training` produces sorted-by-protein bucket parquet files plus
 `labels.npy` / `groups.npy` / `proteins.npy`. The trainer reads features
 through `ParquetFeatureSequence` (an `lgb.Sequence` that lazy-loads row
-groups) so RSS during fit stays bounded — peak ≈ 12 GB on the largest cell
-(nk-bpo, 27.6M rows × 52 features).
+groups) so RSS during fit stays bounded. Peak is approximately 12 GB on the largest cell
+(nk-bpo, 27.6M rows x 52 features).
 
 Optional True-Path-Rule label propagation (`propagate_labels=True` +
-`parent_map.json`) is **off by default** — the bench-v1-K5 dataset is
+`parent_map.json`) is **off by default**: the bench-v1-K5 dataset is
 generated with PROTEA's reconciled-mode evaluation, which already applies
 ancestor closure before producing `gt_pairs`. Re-propagating in the lab
 causes double-propagation and degrades fmax.
