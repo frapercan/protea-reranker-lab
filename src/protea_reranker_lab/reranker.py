@@ -1,13 +1,9 @@
-"""Feature schema + LightGBM fit, mirroring PROTEA's reranker.py exactly.
+"""LightGBM model training and streaming inference.
 
-Kept as a standalone module (not a git submodule of PROTEA) to keep this repo
-installable without the PROTEA dependency tree. The schema is version-pinned
-to PROTEA commit tagged in the dataset manifest — if PROTEA's feature set
-changes, bump the schema here and regenerate the dump.
-
-Training is **streaming**: ``fit`` consumes :class:`lgb.Sequence` instances
-(see :mod:`protea_reranker_lab.sequences`) plus pre-computed numpy label /
-group arrays. No pandas DataFrame is materialised end-to-end.
+Feature schema is imported from ``protea-contracts`` (the canonical source
+of truth). Training is **streaming**: ``fit`` consumes :class:`lgb.Sequence`
+instances (see :mod:`protea_reranker_lab.sequences`) plus pre-computed numpy
+label / group arrays. No pandas DataFrame is materialised end-to-end.
 """
 
 from __future__ import annotations
@@ -17,50 +13,11 @@ from typing import Any
 
 import lightgbm as lgb
 import numpy as np
-
-
-NUMERIC_FEATURES: list[str] = [
-    "distance",
-    "identity_nw", "similarity_nw", "alignment_score_nw", "gaps_pct_nw", "alignment_length_nw",
-    "identity_sw", "similarity_sw", "alignment_score_sw", "gaps_pct_sw", "alignment_length_sw",
-    "length_query", "length_ref",
-    "taxonomic_distance", "taxonomic_common_ancestors",
-    "vote_count", "k_position", "go_term_frequency", "ref_annotation_density",
-    "neighbor_distance_std", "neighbor_vote_fraction",
-    "neighbor_min_distance", "neighbor_mean_distance",
-    "anc2vec_neighbor_cos", "anc2vec_neighbor_maxcos", "anc2vec_has_emb",
-    "anc2vec_query_known_cos", "anc2vec_query_known_maxcos", "anc2vec_query_known_count",
-    "tax_voters_same_frac", "tax_voters_close_frac", "tax_voters_mean_common_ancestors",
-    *[f"emb_pca_query_{i}" for i in range(16)],
-]
-
-CATEGORICAL_FEATURES: list[str] = [
-    "qualifier", "evidence_code", "taxonomic_relation", "aspect",
-]
-
-ALL_FEATURES: list[str] = NUMERIC_FEATURES + CATEGORICAL_FEATURES
-
-FEATURE_FAMILIES: dict[str, list[str]] = {
-    "knn": ["distance", "k_position", "vote_count", "neighbor_vote_fraction",
-            "neighbor_min_distance", "neighbor_mean_distance", "neighbor_distance_std"],
-    "knn_distance": ["distance", "neighbor_min_distance", "neighbor_mean_distance",
-                     "neighbor_distance_std"],
-    "knn_vote": ["k_position", "vote_count", "neighbor_vote_fraction"],
-    "alignment_nw": ["identity_nw", "similarity_nw", "alignment_score_nw",
-                     "gaps_pct_nw", "alignment_length_nw"],
-    "alignment_sw": ["identity_sw", "similarity_sw", "alignment_score_sw",
-                     "gaps_pct_sw", "alignment_length_sw"],
-    "length": ["length_query", "length_ref"],
-    "taxonomy_pair": ["taxonomic_distance", "taxonomic_common_ancestors", "taxonomic_relation"],
-    "taxonomy_voters": ["tax_voters_same_frac", "tax_voters_close_frac",
-                        "tax_voters_mean_common_ancestors"],
-    "go_context": ["go_term_frequency", "ref_annotation_density"],
-    "anc2vec_neighbor": ["anc2vec_neighbor_cos", "anc2vec_neighbor_maxcos", "anc2vec_has_emb"],
-    "anc2vec_query": ["anc2vec_query_known_cos", "anc2vec_query_known_maxcos",
-                      "anc2vec_query_known_count"],
-    "emb_pca": [f"emb_pca_query_{i}" for i in range(16)],
-    "annotation_meta": ["qualifier", "evidence_code", "aspect"],
-}
+from protea_contracts import (
+    ALL_FEATURES,
+    CATEGORICAL_FEATURES,
+    FEATURE_FAMILIES,
+)
 
 
 @dataclass

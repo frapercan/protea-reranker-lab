@@ -4,6 +4,7 @@ version = "0.2.0"
 description = "Research sandbox for iterating on PROTEA's GO-term reranker."
 requires-python = ">=3.11"
 dependencies = [
+    "protea-contracts @ git+https://github.com/frapercan/protea-contracts.git@develop",
     "lightgbm>=4.3",
     "numpy>=1.26",
     "pandas>=2.2",

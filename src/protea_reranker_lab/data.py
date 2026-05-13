@@ -99,5 +99,5 @@ def count_filtered_rows(
 
 
 def expected_columns() -> list[str]:
-    from .reranker import ALL_FEATURES
+    from protea_contracts import ALL_FEATURES
     return RESERVED_COLS + ALL_FEATURES
