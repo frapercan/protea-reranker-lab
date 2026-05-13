@@ -12,8 +12,8 @@ import argparse
 import sys
 from pathlib import Path
 
+from protea_contracts import FEATURE_FAMILIES
 from .experiment import DatasetRef, ExperimentSpec, ModelSpec, SweepRef, TrainingSpec
-from .reranker import FEATURE_FAMILIES
 from .runner import run_experiment
 
 

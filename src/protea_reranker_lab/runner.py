@@ -35,12 +35,14 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .builder import build_dataset
-from .evaluate import fmax_per_protein_group
-from .experiment import ExperimentSpec, ModelSpec, TrainingSpec
-from .reranker import (
+from protea_contracts import (
     CATEGORICAL_FEATURES,
     FEATURE_FAMILIES,
     NUMERIC_FEATURES,
+)
+from .evaluate import fmax_per_protein_group
+from .experiment import ExperimentSpec, ModelSpec, TrainingSpec
+from .reranker import (
     TrainConfig,
     fit,
     predict_streaming,
