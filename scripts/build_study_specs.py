@@ -212,8 +212,16 @@ FEATURE_SWEEP: tuple[str, ...] = (
     "knn-only",
     "v6",
     "v6+lineage",
+    "v6+lineage-leakfree",
     "v6+lineage+geokg",
 )
+#: ``v6+lineage-leakfree`` is the FARM-EXP.10 leakage-fixed champion
+#: bundle: v6 + lineage families minus the ``anc2vec_neighbor``,
+#: ``anc2vec_query`` and ``emb_pca`` families (anc2vec + PCA caused
+#: a known-label shortcut on v226-lineage; see memory
+#: ``project_lb2_leakage_fixed_champion``). The catalog tracks it by
+#: name; the runner slice (FARM-EXP.5+) resolves the name to the actual
+#: family list / drop list when emitting run records.
 
 EVAL_SWEEP: tuple[str, ...] = (
     "bench-v1-K5-filtered",
