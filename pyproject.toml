@@ -2,9 +2,9 @@
 name = "protea-reranker-lab"
 version = "0.2.0"
 description = "Research sandbox for iterating on PROTEA's GO-term reranker."
-requires-python = ">=3.11"
+requires-python = ">=3.12,<4.0"
 dependencies = [
-    "protea-contracts @ git+https://github.com/frapercan/protea-contracts.git@develop",
+    "protea-contracts @ git+https://github.com/frapercan/protea-contracts.git@main",
     "lightgbm>=4.3",
     "numpy>=1.26",
     "pandas>=2.2",
@@ -15,9 +15,18 @@ dependencies = [
     "pyyaml>=6",
 ]
 
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+]
+
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "scripts"]
