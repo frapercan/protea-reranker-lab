@@ -5,6 +5,46 @@ All entries use dataset eval_snapshot_pair v226-v230 and cafaeval
 (prop=fill, norm=cafa, no_orphans=True, max_terms=500, th_step=0.001).
 
 
+## FARM-EXP.10 champion (2026-05-17)
+
+**Status:** active champion (selective rerank policy on v226-lineage).
+
+The LB.2 multi-seed sweep below is promoted as the leakage-fixed
+selective-rerank champion. Key publishable numbers:
+
+- Selective avg cafaeval Fmax (6 NK+LK rerank cells + 3 PK baseline
+  fallback): **0.6215 ± 0.0014** (95% CI half-width on 9-cell mean
+  over 10000-iteration bootstrap of the 3-seed mean).
+- 6-cell NK+LK reranker avg: **0.6845**.
+
+Policy: the reranker is deployed on NK+LK cells (6); PK cells (3) fall
+back to KNN baseline because lineage features cause a DAG-closure
+shortcut on PK. See ADR-D34 in the PROTEA repo for the deployment
+decision.
+
+Configuration is the v23 leakage-fixed bundle (v6 + lineage minus
+anc2vec and PCA features). This is not yet a named bundle in the
+FARM-EXP.2 transversal catalog (`experiments/_catalog/transversal.yaml`);
+the catalog ships the umbrella `v6+lineage` value. Adding the
+leakage-fixed bundle as a first-class catalog axis value is tracked
+as a follow-up (FARM-EXP.10b), pending the digest-backfill slice that
+also clears `project_farm_exp_2_placeholder_digests`.
+
+`runs/transversal/<shortid>/` placement is deferred to the writer
+slice (FARM-EXP.5+), which is the slice that actually emits
+FARM-EXP.3-format run.json records carrying the `axis` block and the
+`fmax_samples` array. Until that slice lands, the
+`scripts/update_champions.py` walker has no FARM-EXP.3 records to
+promote; this section is the manual champion declaration.
+
+References:
+
+- LB.2 multi-seed sweep section below (per-cell table + variance).
+- Memory `project_lb2_leakage_fixed_champion` (publishable numbers).
+- Memory `project_farm_exp_2_placeholder_digests` (tentative shortids).
+- PROTEA ADR-D34 (deployment decision).
+
+
 ## LB.2 multi-seed sweep (2026-05-17)
 
 **Config:** v23 (no anc2vec, no pca; lambdarank; LR=0.05, leaves=63,
