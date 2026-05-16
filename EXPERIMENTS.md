@@ -23,12 +23,14 @@ shortcut on PK. See ADR-D34 in the PROTEA repo for the deployment
 decision.
 
 Configuration is the v23 leakage-fixed bundle (v6 + lineage minus
-anc2vec and PCA features). This is not yet a named bundle in the
-FARM-EXP.2 transversal catalog (`experiments/_catalog/transversal.yaml`);
-the catalog ships the umbrella `v6+lineage` value. Adding the
-leakage-fixed bundle as a first-class catalog axis value is tracked
-as a follow-up (FARM-EXP.10b), pending the digest-backfill slice that
-also clears `project_farm_exp_2_placeholder_digests`.
+anc2vec and PCA features). FARM-EXP.10b promotes this to the
+first-class catalog axis value `v6+lineage-leakfree` in
+`experiments/_catalog/transversal.yaml`, alongside the umbrella
+`v6+lineage` value. The bundle name resolves to the actual
+family/drop list in the runner slice (FARM-EXP.5+); the catalog
+schema_sha is still the placeholder digest derived from the bundle
+name (cleared together with `project_farm_exp_2_placeholder_digests`
+once the digest-backfill slice lands).
 
 `runs/transversal/<shortid>/` placement is deferred to the writer
 slice (FARM-EXP.5+), which is the slice that actually emits

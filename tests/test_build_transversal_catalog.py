@@ -30,12 +30,14 @@ CELLS = bss.enumerate_cells()
 def test_catalog_cell_count_in_constrained_band() -> None:
     # Axis-map target: ~120 cells (illustrative, see
     # context/experiment-axis-map.md section "What the transversal
-    # re-benchmark would cover"). After R1..R5 the actual constrained
-    # grid lands at 160 cells: 8 PLM x 2 k x balanced reranker/feature/
-    # eval mix. Band is set wide enough to absorb +/- 40 drift if the
-    # axis sweeps are tweaked later, narrow enough to catch a missing
-    # rule (which would push raw 512 through unfiltered).
-    assert 120 <= len(CELLS) <= 200, f"unexpected cell count: {len(CELLS)}"
+    # re-benchmark would cover"). After R1..R5 the constrained grid
+    # currently lands at 224 cells (8 PLM x 2 k x balanced
+    # reranker/feature/eval mix, with 5 feature bundles including the
+    # FARM-EXP.10b ``v6+lineage-leakfree`` value). Band is set wide
+    # enough to absorb +/- 40 drift if the axis sweeps are tweaked
+    # later, narrow enough to catch a missing rule (which would push
+    # the raw cartesian through unfiltered).
+    assert 180 <= len(CELLS) <= 280, f"unexpected cell count: {len(CELLS)}"
 
 
 def test_catalog_writes_yaml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -50,7 +52,7 @@ def test_catalog_writes_yaml(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert payload["schema_version"] == "v1"
     assert isinstance(payload["cells"], list)
     assert len(payload["cells"]) == n
-    assert 120 <= n <= 200
+    assert 180 <= n <= 280
 
 
 # ---------------------------------------------------------------- shape
@@ -198,3 +200,27 @@ def test_enumerate_cells_is_deterministic() -> None:
     a = bss.enumerate_cells()
     b = bss.enumerate_cells()
     assert [c["shortid"] for c in a] == [c["shortid"] for c in b]
+
+
+# ---------------------------------------------------------------- FARM-EXP.10b
+
+
+def test_leakfree_axis_value_is_present() -> None:
+    # FARM-EXP.10b adds ``v6+lineage-leakfree`` as a first-class catalog
+    # axis value: the FARM-EXP.10 champion config (v6 + lineage minus
+    # anc2vec + pca). Pin that it survives pruning on at least the
+    # lineage eval set, so future runner slices can reference it.
+    leakfree = [c for c in CELLS if c["features"] == "v6+lineage-leakfree"]
+    assert leakfree, "v6+lineage-leakfree absent from catalog"
+    assert any(
+        c["eval_set"] == "bench-v1-K5-v226-lineage" for c in leakfree
+    ), "v6+lineage-leakfree must be paired with the lineage eval set"
+
+
+def test_leakfree_bundle_shortid_distinct_from_v6_lineage() -> None:
+    # If the leakfree bundle hashed to the same schema_sha as the
+    # umbrella v6+lineage bundle, the catalog cells would collide on
+    # shortid and silently overlap. Pin distinctness here.
+    leakfree_sha = bss._features_to_schema_sha("v6+lineage-leakfree")
+    umbrella_sha = bss._features_to_schema_sha("v6+lineage")
+    assert leakfree_sha != umbrella_sha

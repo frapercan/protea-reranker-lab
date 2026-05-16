@@ -151,6 +151,15 @@ cells:
   eval_set: bench-v1-K5-filtered
   propagation: tpr_pred
   ensemble: none
+- shortid: 0ea94977079e
+  status: planned
+  plm: ankh_base
+  k: 5
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
 - shortid: 0f4bc1221b0d
   status: planned
   plm: esmc_600m
@@ -196,12 +205,30 @@ cells:
   eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
+- shortid: 12f87d7eeff0
+  status: planned
+  plm: esm2_650m
+  k: 10
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
 - shortid: 134a455d037a
   status: planned
   plm: prostt5_xl
   k: 10
   reranker: lgbm.per_cell_9
   features: v6+lineage+geokg
+  eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
+- shortid: 140527c76f3e
+  status: planned
+  plm: prostt5_xl
+  k: 5
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
   eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
@@ -212,6 +239,15 @@ cells:
   reranker: lgbm.per_tier_3
   features: v6+lineage+geokg
   eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
+- shortid: '149961377075'
+  status: planned
+  plm: ankh_base
+  k: 5
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
   propagation: tpr_pred
   ensemble: none
 - shortid: 15950bb9fe86
@@ -239,6 +275,15 @@ cells:
   reranker: none
   features: knn-only
   eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
+- shortid: 18b3497e531c
+  status: planned
+  plm: prot_t5_xl
+  k: 10
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
 - shortid: 19a8cfde90ab
@@ -286,12 +331,30 @@ cells:
   eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
+- shortid: 219d2c2599a9
+  status: planned
+  plm: ankh_large
+  k: 5
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
 - shortid: 21a452f16185
   status: planned
   plm: ankh_base
   k: 10
   reranker: lgbm.per_cell_9
   features: v6+lineage
+  eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
+- shortid: 22b47222b2c9
+  status: planned
+  plm: esmc_300m
+  k: 5
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
   eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
@@ -302,6 +365,15 @@ cells:
   reranker: lgbm.per_cell_9
   features: v6
   eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
+- shortid: 2710d91522fc
+  status: planned
+  plm: esm2_3b
+  k: 5
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
 - shortid: 2781afc2c7b0
@@ -328,6 +400,15 @@ cells:
   k: 10
   reranker: lgbm.per_cell_9
   features: v6
+  eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
+- shortid: 2d65f4d37727
+  status: planned
+  plm: prot_t5_xl
+  k: 10
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
   eval_set: bench-v1-K5-filtered
   propagation: tpr_pred
   ensemble: none
@@ -358,6 +439,24 @@ cells:
   eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
+- shortid: 312fef7c69d4
+  status: planned
+  plm: prostt5_xl
+  k: 10
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
+- shortid: 31fed8c8a135
+  status: planned
+  plm: prostt5_xl
+  k: 10
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
 - shortid: 337f92afa2fb
   status: planned
   plm: esmc_600m
@@ -365,6 +464,15 @@ cells:
   reranker: lgbm.per_cell_9
   features: v6+lineage+geokg
   eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
+- shortid: 33be94c40854
+  status: planned
+  plm: esmc_300m
+  k: 5
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
   propagation: tpr_pred
   ensemble: none
 - shortid: 3574dc485e71
@@ -401,6 +509,33 @@ cells:
   reranker: none
   features: knn-only
   eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
+- shortid: 390e3bcd6cf2
+  status: planned
+  plm: prostt5_xl
+  k: 5
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
+- shortid: 3b4b1bec7e5e
+  status: planned
+  plm: ankh_large
+  k: 5
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
+- shortid: 3c5e6e781ca6
+  status: planned
+  plm: esmc_300m
+  k: 5
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
 - shortid: 3c86d33b7446
@@ -448,6 +583,15 @@ cells:
   eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
+- shortid: 43bfd6792200
+  status: planned
+  plm: esm2_3b
+  k: 10
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
 - shortid: 4550eb9c918a
   status: planned
   plm: esmc_600m
@@ -466,6 +610,24 @@ cells:
   eval_set: bench-v1-K5-filtered
   propagation: tpr_pred
   ensemble: none
+- shortid: 45e845748517
+  status: planned
+  plm: esmc_600m
+  k: 5
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
+- shortid: 477f686f4d1e
+  status: planned
+  plm: esmc_300m
+  k: 10
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
 - shortid: 48d182c706c7
   status: planned
   plm: ankh_large
@@ -473,6 +635,15 @@ cells:
   reranker: lgbm.per_tier_3
   features: v6+lineage
   eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
+- shortid: 4b15dfdc5c97
+  status: planned
+  plm: ankh_large
+  k: 10
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
   propagation: tpr_pred
   ensemble: none
 - shortid: 4bbf58c51bc6
@@ -511,6 +682,15 @@ cells:
   eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
+- shortid: 4f2445346125
+  status: planned
+  plm: prot_t5_xl
+  k: 10
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
 - shortid: 4fea9d951c9f
   status: planned
   plm: esmc_600m
@@ -529,6 +709,15 @@ cells:
   eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
+- shortid: 52ba052621c6
+  status: planned
+  plm: esmc_600m
+  k: 5
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
 - shortid: 52e723fc8046
   status: planned
   plm: esm2_3b
@@ -545,6 +734,15 @@ cells:
   reranker: lgbm.per_tier_3
   features: v6+lineage
   eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
+- shortid: 557349aa635d
+  status: planned
+  plm: esm2_3b
+  k: 5
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
   propagation: tpr_pred
   ensemble: none
 - shortid: 57154f516451
@@ -628,6 +826,15 @@ cells:
   eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
+- shortid: 69b3c3070238
+  status: planned
+  plm: esmc_300m
+  k: 10
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
 - shortid: 6ab416cda1b5
   status: planned
   plm: esmc_300m
@@ -664,12 +871,30 @@ cells:
   eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
+- shortid: 6de9a8621444
+  status: planned
+  plm: esm2_650m
+  k: 5
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
 - shortid: 6f7b15d81cc6
   status: planned
   plm: prostt5_xl
   k: 10
   reranker: lgbm.per_tier_3
   features: v6+lineage
+  eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
+- shortid: 70ba35021b67
+  status: planned
+  plm: prot_t5_xl
+  k: 5
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
   eval_set: bench-v1-K5-filtered
   propagation: tpr_pred
   ensemble: none
@@ -799,6 +1024,15 @@ cells:
   eval_set: bench-v1-K5-filtered
   propagation: tpr_pred
   ensemble: none
+- shortid: 85e526d8442e
+  status: planned
+  plm: ankh_large
+  k: 10
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
 - shortid: 863212df6913
   status: planned
   plm: esm2_3b
@@ -815,6 +1049,15 @@ cells:
   reranker: alignment_weighted
   features: v6
   eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
+- shortid: 890cc51257c6
+  status: planned
+  plm: esm2_3b
+  k: 5
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
 - shortid: 8b314f3d88fa
@@ -835,6 +1078,24 @@ cells:
   eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
+- shortid: 8cae9cd17a6b
+  status: planned
+  plm: esmc_600m
+  k: 10
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
+- shortid: 8cc9ddbf899e
+  status: planned
+  plm: esm2_650m
+  k: 5
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
 - shortid: 8e659cb54385
   status: planned
   plm: esmc_600m
@@ -844,12 +1105,39 @@ cells:
   eval_set: bench-v1-K5-filtered
   propagation: tpr_pred
   ensemble: none
+- shortid: 8f59e12de784
+  status: planned
+  plm: ankh_large
+  k: 5
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
 - shortid: 907c28a055f4
   status: planned
   plm: ankh_base
   k: 10
   reranker: none
   features: knn-only
+  eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
+- shortid: 91a18119fd41
+  status: planned
+  plm: esm2_650m
+  k: 10
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
+- shortid: 9672e36e66d0
+  status: planned
+  plm: ankh_base
+  k: 5
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
   eval_set: bench-v1-K5-filtered
   propagation: tpr_pred
   ensemble: none
@@ -880,6 +1168,15 @@ cells:
   eval_set: bench-v1-K5-filtered
   propagation: tpr_pred
   ensemble: none
+- shortid: 9ef985e7d81d
+  status: planned
+  plm: ankh_base
+  k: 10
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
 - shortid: a08c36ca0fb9
   status: planned
   plm: esm2_650m
@@ -896,6 +1193,24 @@ cells:
   reranker: lgbm.per_cell_9
   features: v6+lineage
   eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
+- shortid: a1a7ed6d4ef5
+  status: planned
+  plm: esmc_600m
+  k: 10
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
+- shortid: a1efcebcead0
+  status: planned
+  plm: prot_t5_xl
+  k: 5
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
 - shortid: a46eb9e3c214
@@ -952,6 +1267,24 @@ cells:
   eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
+- shortid: acb1e7b6bb8a
+  status: planned
+  plm: esmc_300m
+  k: 10
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
+- shortid: accb7d892ab2
+  status: planned
+  plm: prostt5_xl
+  k: 10
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
 - shortid: ae0d0bc1a506
   status: planned
   plm: esmc_300m
@@ -970,6 +1303,24 @@ cells:
   eval_set: bench-v1-K5-filtered
   propagation: tpr_pred
   ensemble: none
+- shortid: af86097e5f10
+  status: planned
+  plm: esmc_300m
+  k: 5
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
+- shortid: b0181037369b
+  status: planned
+  plm: ankh_base
+  k: 10
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
 - shortid: b0c6593e1411
   status: planned
   plm: esmc_300m
@@ -986,6 +1337,42 @@ cells:
   reranker: lgbm.per_tier_3
   features: v6+lineage+geokg
   eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
+- shortid: b11815d350e4
+  status: planned
+  plm: esmc_300m
+  k: 10
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
+- shortid: b45153697004
+  status: planned
+  plm: ankh_large
+  k: 10
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
+- shortid: b4b7a8e32ff5
+  status: planned
+  plm: prostt5_xl
+  k: 5
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
+- shortid: b5a591fd8b55
+  status: planned
+  plm: prostt5_xl
+  k: 10
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
   propagation: tpr_pred
   ensemble: none
 - shortid: b6d7b3c48504
@@ -1060,6 +1447,15 @@ cells:
   eval_set: bench-v1-K5-filtered
   propagation: tpr_pred
   ensemble: none
+- shortid: befbbc33a084
+  status: planned
+  plm: esmc_600m
+  k: 10
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
 - shortid: bf92db3c9f39
   status: planned
   plm: esmc_300m
@@ -1087,6 +1483,15 @@ cells:
   eval_set: bench-v1-K5-filtered
   propagation: tpr_pred
   ensemble: none
+- shortid: c1207e74cfdc
+  status: planned
+  plm: esm2_650m
+  k: 5
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
 - shortid: c25c91f9d35b
   status: planned
   plm: esmc_600m
@@ -1094,6 +1499,24 @@ cells:
   reranker: alignment_weighted
   features: v6
   eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
+- shortid: c2fe196ab808
+  status: planned
+  plm: prostt5_xl
+  k: 5
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
+- shortid: c30907540868
+  status: planned
+  plm: ankh_base
+  k: 10
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
 - shortid: c347c137e7bb
@@ -1105,6 +1528,15 @@ cells:
   eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
+- shortid: c4755b66de38
+  status: planned
+  plm: prot_t5_xl
+  k: 5
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
 - shortid: c615af5f4635
   status: planned
   plm: prot_t5_xl
@@ -1112,6 +1544,24 @@ cells:
   reranker: lgbm.per_tier_3
   features: v6+lineage
   eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
+- shortid: c7c6ace40bbf
+  status: planned
+  plm: esm2_3b
+  k: 10
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
+- shortid: c8342fd2fa2d
+  status: planned
+  plm: esm2_650m
+  k: 10
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
 - shortid: c85ac21bc333
@@ -1168,6 +1618,15 @@ cells:
   eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
+- shortid: ced3f6610958
+  status: planned
+  plm: esm2_650m
+  k: 5
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
 - shortid: cf2c7447aef2
   status: planned
   plm: esm2_3b
@@ -1175,6 +1634,15 @@ cells:
   reranker: lgbm.per_tier_3
   features: v6+lineage
   eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
+- shortid: d06f3f0ce36a
+  status: planned
+  plm: ankh_base
+  k: 10
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
   propagation: tpr_pred
   ensemble: none
 - shortid: d0fd4cb697d0
@@ -1193,6 +1661,15 @@ cells:
   reranker: lgbm.per_tier_3
   features: v6
   eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
+- shortid: d6a51019f465
+  status: planned
+  plm: prot_t5_xl
+  k: 5
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
 - shortid: d76697511697
@@ -1240,6 +1717,15 @@ cells:
   eval_set: bench-v1-K5-filtered
   propagation: tpr_pred
   ensemble: none
+- shortid: d9f5ec4d9480
+  status: planned
+  plm: esm2_650m
+  k: 10
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
 - shortid: db5c4a6394e5
   status: planned
   plm: esm2_650m
@@ -1258,6 +1744,15 @@ cells:
   eval_set: bench-v1-K5-filtered
   propagation: tpr_pred
   ensemble: none
+- shortid: df20f0b02e7d
+  status: planned
+  plm: ankh_large
+  k: 10
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
 - shortid: df2801a56f76
   status: planned
   plm: prostt5_xl
@@ -1265,6 +1760,15 @@ cells:
   reranker: lgbm.per_tier_3
   features: v6+lineage
   eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
+- shortid: df332dc4f27b
+  status: planned
+  plm: ankh_large
+  k: 5
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
 - shortid: e0d442448739
@@ -1330,6 +1834,15 @@ cells:
   eval_set: bench-v1-K5-filtered
   propagation: tpr_pred
   ensemble: none
+- shortid: eadc222946ae
+  status: planned
+  plm: esmc_600m
+  k: 5
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
 - shortid: eb0598fadf8e
   status: planned
   plm: esmc_300m
@@ -1337,6 +1850,15 @@ cells:
   reranker: lgbm.per_cell_9
   features: v6
   eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
+- shortid: eb146bb797f5
+  status: planned
+  plm: esmc_600m
+  k: 5
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
 - shortid: ec707641f214
@@ -1355,6 +1877,24 @@ cells:
   reranker: lgbm.per_cell_9
   features: v6+lineage
   eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
+- shortid: ee3406a43701
+  status: planned
+  plm: esm2_3b
+  k: 5
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
+- shortid: ee8ae1520942
+  status: planned
+  plm: esm2_3b
+  k: 10
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
 - shortid: ef06480bfcb0
@@ -1382,6 +1922,15 @@ cells:
   reranker: lgbm.per_cell_9
   features: v6+lineage
   eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
+- shortid: f36e98f49946
+  status: planned
+  plm: esmc_600m
+  k: 10
+  reranker: lgbm.per_tier_3
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
   propagation: tpr_pred
   ensemble: none
 - shortid: f3b43b821572
@@ -1420,6 +1969,15 @@ cells:
   eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
+- shortid: f96a482ed5b1
+  status: planned
+  plm: prot_t5_xl
+  k: 10
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
 - shortid: fad4bc71f383
   status: planned
   plm: prostt5_xl
@@ -1438,12 +1996,30 @@ cells:
   eval_set: bench-v1-K5-v226-lineage
   propagation: tpr_pred
   ensemble: none
+- shortid: fc5ab98b8a24
+  status: planned
+  plm: ankh_base
+  k: 5
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
+  eval_set: bench-v1-K5-v226-lineage
+  propagation: tpr_pred
+  ensemble: none
 - shortid: fd05e1588557
   status: planned
   plm: ankh_base
   k: 10
   reranker: lgbm.per_cell_9
   features: v6
+  eval_set: bench-v1-K5-filtered
+  propagation: tpr_pred
+  ensemble: none
+- shortid: fe6545f7472f
+  status: planned
+  plm: esm2_3b
+  k: 10
+  reranker: lgbm.per_cell_9
+  features: v6+lineage-leakfree
   eval_set: bench-v1-K5-filtered
   propagation: tpr_pred
   ensemble: none
