@@ -17,3 +17,4 @@ wandb/
 *.log
 .pytest_cache/
 .ipynb_checkpoints/
+poetry.toml
