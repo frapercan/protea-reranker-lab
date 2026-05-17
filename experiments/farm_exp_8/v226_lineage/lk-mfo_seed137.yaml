@@ -1,0 +1,53 @@
+schema_version: v1
+name: farm_exp_8_leakfree_v226_lk-mfo_seed137
+description: FARM-EXP.8 leakfree grid, v6+lineage-leakfree bundle, v226-lineage eval, lk-mfo, seed=137
+dataset:
+  manifest: datasets/bench-v1-K5-v226-lineage/manifest.json
+model:
+  kind: lgbm_reranker
+  defaults:
+    objective: lambdarank
+    num_boost_round: 10000
+    early_stopping_rounds: 100
+    learning_rate: 0.05
+    num_leaves: 63
+    min_data_in_leaf: 100
+    drop_features:
+    - anc2vec_has_emb
+    - anc2vec_neighbor_cos
+    - anc2vec_neighbor_maxcos
+    - anc2vec_query_known_cos
+    - anc2vec_query_known_count
+    - anc2vec_query_known_maxcos
+    - emb_pca_query_0
+    - emb_pca_query_1
+    - emb_pca_query_10
+    - emb_pca_query_11
+    - emb_pca_query_12
+    - emb_pca_query_13
+    - emb_pca_query_14
+    - emb_pca_query_15
+    - emb_pca_query_2
+    - emb_pca_query_3
+    - emb_pca_query_4
+    - emb_pca_query_5
+    - emb_pca_query_6
+    - emb_pca_query_7
+    - emb_pca_query_8
+    - emb_pca_query_9
+training:
+  cell: lk-mfo
+  val_strategy: protein_group
+  val_fraction: 0.2
+  seed: 137
+  propagate_labels: false
+sweep:
+  backend: none
+output_dir: runs/farm_exp_8/v226_lineage/lk-mfo_seed137
+tags:
+- farm_exp_8
+- v6+lineage-leakfree
+- bench-v1-K5-v226-lineage
+- lk-mfo
+- seed137
+keep_staging: false
