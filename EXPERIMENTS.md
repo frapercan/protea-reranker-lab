@@ -5,6 +5,100 @@ All entries use dataset eval_snapshot_pair v226-v230 and cafaeval
 (prop=fill, norm=cafa, no_orphans=True, max_terms=500, th_step=0.001).
 
 
+## FARM-EXP.8 transversal grid (2026-05-17)
+
+**Status:** transversal characterisation, lab_fmax metric only.
+
+Full 9-cell x 3-seed grid on `v6+lineage-leakfree` bundle (v6 + lineage
+minus anc2vec_* and emb_pca_* families, 22 features dropped, 34 retained),
+across both eval sets:
+
+- `bench-v1-K5-v226-lineage` (val_strategy=protein_group, eval v226-v230)
+- `bench-v1-K5-filtered` (val_strategy=temporal val_holdout=v215-v220, eval v220-v230)
+
+Scope: 9 cells x 3 seeds (42, 7, 137) x 2 eval sets = 54 runs (esmc_300m
+embeddings, K=5). Aspirational 8-PLM x 2-K x 2-rerankers transversal
+was not feasible because only esmc_300m embeddings exist locally; the
+PLM/K/reranker axes are deferred until additional embedding caches land.
+
+### Per-cell lab_fmax mean ± 95% CI (3 seeds, t-dist df=2)
+
+```
+                v226-lineage              filtered
+cell           mean    CI_half        mean    CI_half
+nk-mfo        0.1924   0.0077        0.6347   0.0068
+nk-bpo        0.0421   0.0059        0.5874   0.0054
+nk-cco        0.1483   0.0030        0.7750   0.0033
+lk-mfo        0.1546   0.0087        0.5731   0.0020
+lk-bpo        0.0500   0.0043        0.6151   0.0027
+lk-cco        0.1137   0.0043        0.7881   0.0022
+pk-mfo        0.1361   0.0061        0.2819   0.0080
+pk-bpo        0.0407   0.0048        0.1362   0.0034
+pk-cco        0.1291   0.0287        0.2840   0.0125
+```
+
+### Grid aggregates (lab_fmax, mean across 3 seeds)
+
+```
+                v226-lineage    filtered
+9-cell avg        0.1119         0.5195
+NK+LK avg         0.1168         0.6622
+PK avg            0.1020         0.2340
+best cell         nk-mfo         lk-cco
+best lab_fmax     0.1924         0.7881
+```
+
+### Metric note (important)
+
+`test_fmax` in run.json is `lab_fmax`: per-protein-group Fmax without
+label propagation. The LB.2 / FARM-EXP.10 champion **0.6215 ± 0.0014**
+is `cafaeval_fmax` (with prop=fill, norm=cafa label propagation). These
+are different metrics; the lab_fmax numbers above are not directly
+comparable to the champion. Cross-cell ratios match the cafaeval ranking
+(NK+LK > PK, lk-cco/nk-cco strong on filtered) but the absolute scale
+differs by ~5x.
+
+A cafaeval re-evaluation of the FARM-EXP.8 prediction parquets is
+deferred to FARM-EXP.11 (post-cleanup); it requires copying predictions
+into the PROTEA venv (which ships cafaeval) and rerunning the cafaeval
+phase script adapted for this grid. Once that lands, the comparable
+selective_avg vs champion 0.6215 will be reported.
+
+### Seed variance / stability
+
+CI half-widths across all 54 cell-eval-set combinations stay below 0.03,
+with median ~0.005. The largest CI is pk-cco v226-lineage (0.0287), driven
+by seed42=0.1191 vs seed7=0.1418 (one seed materially off the cluster).
+NK+LK cells on filtered are very stable (CI 0.002-0.007). The reranker
+ordering across seeds is consistent: no cell flips rank within an eval
+set across seeds.
+
+### Cross eval-set comparison
+
+The `filtered` eval set yields markedly higher lab_fmax across all NK+LK
+cells (NK+LK avg 0.6622 vs 0.1168 on v226-lineage). The two eval sets
+differ in val strategy (temporal v215-v220 vs protein_group) and in train
+row count per cell (filtered NK cells: 140k-440k rows; v226-lineage NK
+cells: 1.8M-2.3M rows). The lab_fmax scale gap is dominated by the eval
+set composition (filtered eval covers v220-v230 vs v226-v230 only), not
+by reranker quality.
+
+### Output artefacts
+
+- `runs/farm_exp_8/summary.json`: full per-cell stats and aggregates.
+- `runs/farm_exp_8/cis.json`: compact per-cell CIs.
+- `experiments/farm_exp_8/{v226_lineage,filtered}/*.yaml`: 54 spec files.
+- `runs/farm_exp_8/{v226_lineage,filtered}/{cell}_seed{s}/run.json`: per-run records (gitignored).
+
+### Next slot options
+
+1. FARM-EXP.11: cafaeval re-evaluation of FARM-EXP.8 predictions for
+   apples-to-apples champion comparison.
+2. Extend grid to additional PLMs once embedding caches land (esmc_600m,
+   esm2_t33_650M, prostt5, etc.).
+3. Add K=10 axis (currently K=5 only).
+
+
 ## FARM-EXP.10 champion (2026-05-17)
 
 **Status:** active champion (selective rerank policy on v226-lineage).
