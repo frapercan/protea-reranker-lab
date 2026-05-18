@@ -50,6 +50,7 @@ Feature-set legend:
 | [study-v27-binary-multiseed](#study-v27-binary-multiseed) | esmc_300m/K5/BIN/lean+lin+emb/bench-v1-K5-v226-lineage | 6 cells NK+LK, 3 seeds | NK+LK avg **0.7378 +- 0.0028** (5/6 sig95 vs v22) | **ship** (publishable CIs for Ch.6; binary champion replicated) | this PR |
 | [lr4-v18-selective](#lr4-v18-selective) | esmc_300m/K5/LR/lean+lin/bench-v1-K5-filtered | 3 cells | recomputed leakage-free | drop (historical policy, superseded by v22) | PR #21 (LR.4) |
 | [study-selective-rerank-K10-v226](#study-selective-rerank-K10-v226) | esmc_300m/K5/LR/lean+lin/bench-v1-K5-v226-lineage | 6 NK+LK + 3 PK baseline | **0.6215 +- 0.0014** (9-cell selective avg) | **ship** (FARM-EXP.10 recomputed champion; supersedes legacy 0.4562) | PRs #15, #18, #21 (FARM-EXP.10+LR.1+LR.4) |
+| [study-farm-exp-9b-94cell](#study-farm-exp-9b-94cell) | esmc_300m/K5/LR/lean/bench-v1-K5-filtered | 9 cells x 3 seeds + 39 ablations + 27 hparam + 1 standalone = 94 cells | NK avg 0.6654, LK avg 0.6590, PK avg 0.2320 (bench-v1-K5-filtered, NOT comparable to v226) | iterate (leakage-fixed transversal rerun; ablation + hparam audit) | FARM-EXP.9b (this PR) |
 
 ## Detailed entries
 
@@ -591,14 +592,44 @@ The v27-binary-multiseed figure (0.7291 +- 0.0028) is the LB.2-equivalent publis
 claim for the binary objective: 5/6 NK+LK cells strictly dominate v22 at 95% confidence.
 Both are on bench-v1-K5-v226-lineage (eval window v226-v230).
 
+### study-farm-exp-9b-94cell
+
+**Tuple:** esmc_300m / K5 / LR / lean / bench-v1-K5-filtered
+
+- **Spec files:** `experiments/farm_exp_9/{rep,abl,hp,standalone}_*.yaml` (94 total)
+- **Dataset:** bench-v1-K5-filtered (train v160-v220, eval v220-v230, leakage-filtered)
+- **Features:** lean = 30 features (knn, knn_vote, knn_dist, go_context, annotation_meta, alignment_nw, alignment_sw, length, taxonomy_pair, taxonomy_voters; anc2vec and emb_pca dropped, v6+anc2vec-leakfree config)
+- **Cells and seeds:** 9 cells x 3 seeds (27 replication runs) + 39 ablation runs (3 cells x 13 families) + 27 hparam sweep runs (nk-bpo only) + 1 standalone run = 94 total
+- **Run artefacts:** `runs/transversal/farm_exp_9_*/run.json` (in worktree farm-exp-9b-detached at commit 17957cc)
+- **Results (bench-v1-K5-filtered, NOT comparable to v226-lineage numbers):**
+
+  | cell | mean Fmax (3 seeds) | 95% CI half |
+  |-|-|-|
+  | nk-bpo | 0.5874 | 0.0021 |
+  | nk-mfo | 0.6347 | 0.0027 |
+  | nk-cco | 0.7742 | 0.0007 |
+  | lk-bpo | 0.6151 | 0.0009 |
+  | lk-mfo | 0.5737 | 0.0006 |
+  | lk-cco | 0.7881 | 0.0009 |
+  | pk-bpo | 0.1332 | 0.0027 |
+  | pk-mfo | 0.2819 | 0.0032 |
+  | pk-cco | 0.2810 | 0.0034 |
+
+- **Ablation findings:** knn family is most critical in all three ablation cells (lk-cco delta=-0.0269, nk-bpo delta=-0.0032, pk-mfo delta=-0.0388). anc2vec and emb_pca families are neutral (delta near zero), confirming the leakage-fix feature drop is safe.
+- **Hparam finding:** L=31, lr=0.1 marginally outperforms default (L=63, lr=0.05) by +0.0056 Fmax on nk-bpo. neg_pos_ratio has no measurable effect. Default hparams are near-optimal.
+- **Outcome:** iterate. Results are on bench-v1-K5-filtered; NOT comparable to bench-v1-K5-v226-lineage numbers. Champion table unchanged (FARM-EXP.5 writer slice required for FARM-EXP.4 auto-promoter).
+- **Harvest summary:** `experiments/farm_exp_9b/summary.md`
+- **Merged-in:** FARM-EXP.9b (this PR, 2026-05-18)
+
 ## Open items and next candidates
 
 1. **v27 multi-seed done**: study-v27-binary-multiseed shipped (seeds 42/137/244). Publishable.
-2. **PK-specific hparam grid**: capacity and regularisation sweep on PK cells without lineage
+2. **FARM-EXP.9b done**: 94-cell transversal rerun on bench-v1-K5-filtered complete. Harvest summary at `experiments/farm_exp_9b/summary.md`.
+3. **PK-specific hparam grid**: capacity and regularisation sweep on PK cells without lineage
    (v24 design space). Propose as `study-v28-pk-hparam`.
-3. **FARM-EXP.7 8-PLM ensemble**: transversal grid across multiple PLM backends.
+4. **FARM-EXP.7 8-PLM ensemble**: transversal grid across multiple PLM backends.
    Pending; no spec file yet in this lab.
-4. **Propagation interaction audit**: train with `propagate_labels=True` vs False to map
+5. **Propagation interaction audit**: train with `propagate_labels=True` vs False to map
    the DAG-closure interaction in PK. Propose as `study-v29-propagation-audit`.
 
 ## How to propose a new spec
