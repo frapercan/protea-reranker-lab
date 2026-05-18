@@ -49,6 +49,7 @@ Feature-set legend:
 | [study-v26-binary](#study-v26-binary) | esmc_300m/K5/BIN/lean+lin+emb/bench-v1-K5-v226-lineage | 9 cells | NK+LK avg ~0.745 (best); PK broken | **ship** (NK+LK cells, binary objective champion) | PR #19 (LB.3), PR #20 (LM.3) |
 | [study-v27-binary-multiseed](#study-v27-binary-multiseed) | esmc_300m/K5/BIN/lean+lin+emb/bench-v1-K5-v226-lineage | 6 cells NK+LK, 3 seeds | NK+LK avg **0.7378 +- 0.0028** (5/6 sig95 vs v22) | **ship** (publishable CIs for Ch.6; binary champion replicated) | this PR |
 | [lr4-v18-selective](#lr4-v18-selective) | esmc_300m/K5/LR/lean+lin/bench-v1-K5-filtered | 3 cells | recomputed leakage-free | drop (historical policy, superseded by v22) | PR #21 (LR.4) |
+| [study-selective-rerank-K10-v226](#study-selective-rerank-K10-v226) | esmc_300m/K5/LR/lean+lin/bench-v1-K5-v226-lineage | 6 NK+LK + 3 PK baseline | **0.6215 +- 0.0014** (9-cell selective avg) | **ship** (FARM-EXP.10 recomputed champion; supersedes legacy 0.4562) | PRs #15, #18, #21 (FARM-EXP.10+LR.1+LR.4) |
 
 ## Detailed entries
 
@@ -502,6 +503,62 @@ This is the canonical LAFA v22 lineage reranker, also called the "LB.2 leakage-f
 - **Outcome:** drop. Historical policy recomputed on leakage-free dataset for the record. Results are lower than v9 numbers (confirming leakage inflation). Superseded by v22 lineage policy. Documented for thesis cross-reference.
 - **Notes:** The original v18 "selective rerank" Fmax of ~0.4562 cited in pre-LB.2 records was measured on the unfiltered dataset (leakage-suspected). LR.4 established the leakage-free baseline. v22 lineage is the replacement policy.
 - **Artifacts:** `experiments/lr4/v18_selective_delta.csv`, PR #21 (LR.4)
+
+### study-selective-rerank-K10-v226
+
+**Tuple:** esmc_300m / K5 / LR / lean+lin / bench-v1-K5-v226-lineage
+
+**Note on K:** The original historical "selective rerank at K=10" (PROTEA v18
+deployment) used 10 nearest neighbors. No `bench-v1-K10-v226-lineage` dataset
+exists in the lab. Per ADR-D34 (PROTEA, Status: Accepted, 2026-05-17) the
+FARM-EXP.10 slice accepted the K=5 LB.2 multi-seed sweep as the recomputed
+champion; the current lab design uses K=5 as the default. The "K10" in the
+study name refers to the historical selective rerank mechanism identity, not
+a K=10 nearest-neighbor run.
+
+- **Spec files:** `experiments/farm_exp_10/` (closure summary; see
+  `experiments/farm_exp_10/multiseed_summary.md`)
+- **Dataset:** bench-v1-K5-v226-lineage (13 train pairs v160-v226, eval v226-v230,
+  24.4M train rows, 1.07M eval rows)
+- **Features:** lean+lin (knn + alignment + length + taxonomy + go_context + lineage;
+  anc2vec and emb_pca dropped to remove historical leakage source)
+- **Cells:** 9 cells (NK+LK reranked; PK baseline fallback per selective-deploy policy)
+- **Seeds:** 42, 7, 137 (LB.2 multi-seed sweep)
+- **Budget:** lambdarank, num_boost_round=10000, lr=0.05, num_leaves=63,
+  min_data_in_leaf=100, early_stopping_rounds=100
+- **Cafaeval:** prop=fill, norm=cafa, no_orphans=True, max_terms=500
+- **Results (per-cell mean over 3 seeds):**
+
+  | cell | policy | mean Fmax | CI half | baseline | delta |
+  |-|-|-|-|-|-|
+  | nk-bpo | reranker | 0.5596 | 0.0024 | 0.5333 | +0.0263 |
+  | nk-mfo | reranker | 0.7065 | 0.0036 | 0.6447 | +0.0618 |
+  | nk-cco | reranker | 0.7774 | 0.0048 | 0.7000 | +0.0774 |
+  | lk-bpo | reranker | 0.6460 | 0.0032 | 0.5844 | +0.0616 |
+  | lk-mfo | reranker | 0.6806 | 0.0060 | 0.5816 | +0.0990 |
+  | lk-cco | reranker | 0.7367 | 0.0091 | 0.7053 | +0.0314 |
+  | pk-bpo | baseline | 0.4031 | n/a | 0.4031 | 0.0000 |
+  | pk-mfo | baseline | 0.4831 | n/a | 0.4831 | 0.0000 |
+  | pk-cco | baseline | 0.6009 | n/a | 0.6009 | 0.0000 |
+
+  9-cell selective avg cafaeval Fmax: **0.6215 +- 0.0014**.
+  NK+LK reranker avg: 0.6845.
+  All 6 NK+LK lifts are strictly positive across all seeds (max CI half-width 0.0091).
+
+- **Outcome:** ship. FARM-EXP.10 recomputed champion on bench-v1-K5-v226-lineage.
+  Supersedes legacy 0.4562 (memory-only, leakage-contaminated, range unknown).
+  Selective-deploy policy (NK+LK reranked, PK baseline fallback) is confirmed
+  across all 3 seeds and all 6 NK+LK cells. Legacy 0.4562 is documented in
+  `experiments/lr4/v18_selective_delta.csv` and memory
+  `project_v18_selective_rerank` (marked superseded).
+- **Artifacts:** `experiments/lr4/v18_selective_delta.csv`,
+  `experiments/farm_exp_10/multiseed_summary.md`,
+  `experiments/lb3/per_cell_paired_ci.csv`,
+  PRs #15, #18, #19, #21 (FARM-EXP.10, LR.1, LB.3, LR.4)
+- **ADR:** PROTEA `docs/source/adr/D34-selective-rerank-resurrection.rst`
+  (Status: Accepted; Decision points 1-7 ratify the recompute policy and
+  the 0.6215 champion as superseding the legacy 0.4562)
+- **eval_set_name:** bench-v1-K5-v226-lineage
 
 ## Baseline reference
 
