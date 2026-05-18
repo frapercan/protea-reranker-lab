@@ -502,6 +502,110 @@ def test_render_scaffold_when_no_records(tmp_path: Path) -> None:
     assert "no farm-exp.3-format run records" in body.lower()
 
 
+# ----------------------------------------------------- manual appendix
+
+
+def test_manual_appendix_preserved_across_apply(tmp_path: Path) -> None:
+    """A pre-FARM-EXP.3 manual entry survives ``--apply`` re-renders.
+
+    The marker pair ``<!-- MANUAL_ENTRIES_BEGIN -->`` ...
+    ``<!-- MANUAL_ENTRIES_END -->`` delimits a manually-curated
+    appendix that records champions for which no FARM-EXP.3 run.json
+    exists yet (writer slice deferred to FARM-EXP.5+). This is the
+    LR.4 acceptance contract: the leakage-free selective rerank
+    champion entry must not be silently dropped when the auto-walker
+    rewrites the file.
+    """
+    # Seed an existing champions.md with a manual entry.
+    champions_md = tmp_path / "champions.md"
+    initial = (
+        uc.CHAMPIONS_HEADER
+        + "_scaffold body_\n"
+        + "\n"
+        + uc.MANUAL_ENTRIES_BEGIN
+        + "\n"
+        + "## Manual entries (pre-FARM-EXP.3 records)\n"
+        + "\n"
+        + "LR.4: leakage-free selective rerank entry.\n"
+        + uc.MANUAL_ENTRIES_END
+        + "\n"
+    )
+    champions_md.write_text(initial)
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    uc.run(
+        runs_dir=runs,
+        champions_file=champions_md,
+        symlink_root=tmp_path / "runs" / "champion",
+        apply=True,
+    )
+    rewritten = champions_md.read_text()
+    assert uc.MANUAL_ENTRIES_BEGIN in rewritten
+    assert uc.MANUAL_ENTRIES_END in rewritten
+    assert "LR.4: leakage-free selective rerank entry." in rewritten
+
+
+def test_manual_appendix_absent_marker_pair_yields_no_appendix(
+    tmp_path: Path,
+) -> None:
+    """A file without the markers contributes no appendix to the re-render."""
+    champions_md = tmp_path / "champions.md"
+    champions_md.write_text(
+        uc.CHAMPIONS_HEADER + "_scaffold body, no markers_\n"
+    )
+    runs = tmp_path / "runs"
+    runs.mkdir()
+    uc.run(
+        runs_dir=runs,
+        champions_file=champions_md,
+        symlink_root=tmp_path / "runs" / "champion",
+        apply=True,
+    )
+    rewritten = champions_md.read_text()
+    assert uc.MANUAL_ENTRIES_BEGIN not in rewritten
+
+
+def test_manual_appendix_preserved_with_real_winners(tmp_path: Path) -> None:
+    """Appendix survives the rich-content branch of render_champions_md."""
+    runs = tmp_path / "runs"
+    _write_run(
+        runs,
+        run_id="20260101T000000_only_run",
+        samples=_normal_samples(0.40, 0.02, seed=40),
+    )
+    champions_md = tmp_path / "champions.md"
+    # Pre-seed the file with a champion table + manual appendix; the
+    # next --apply run must regenerate the table and re-append the
+    # appendix verbatim.
+    pre = (
+        uc.CHAMPIONS_HEADER
+        + "(stale body)\n\n"
+        + uc.MANUAL_ENTRIES_BEGIN
+        + "\nLR.4 entry kept.\n"
+        + uc.MANUAL_ENTRIES_END
+        + "\n"
+    )
+    champions_md.write_text(pre)
+    uc.run(
+        runs_dir=runs,
+        champions_file=champions_md,
+        symlink_root=tmp_path / "runs" / "champion",
+        apply=True,
+    )
+    body = champions_md.read_text()
+    assert "20260101T000000_only_run" in body  # rich-content branch fired
+    assert "LR.4 entry kept." in body
+    assert "(stale body)" not in body
+
+
+def test_extract_manual_appendix_handles_missing_markers() -> None:
+    """The extractor returns empty when either marker is absent."""
+    assert uc.extract_manual_appendix("# Champions\nbody\n") == ""
+    assert uc.extract_manual_appendix(
+        "# Champions\n" + uc.MANUAL_ENTRIES_BEGIN + "\nstuff\n"
+    ) == ""
+
+
 # ----------------------------------------------------- TriplKey parse
 
 

@@ -1,0 +1,12 @@
+cell,tier,aspect,policy,selective_fmax,ci_half,baseline_fmax,delta_vs_baseline,source
+nk-bpo,nk,bpo,reranker,0.5596,0.0024,0.5333,0.0263,EXPERIMENTS.md
+nk-mfo,nk,mfo,reranker,0.7065,0.0036,0.6447,0.0618,EXPERIMENTS.md
+nk-cco,nk,cco,reranker,0.7774,0.0048,0.7000,0.0774,EXPERIMENTS.md
+lk-bpo,lk,bpo,reranker,0.6460,0.0032,0.5844,0.0616,EXPERIMENTS.md
+lk-mfo,lk,mfo,reranker,0.6806,0.0060,0.5816,0.0990,EXPERIMENTS.md
+lk-cco,lk,cco,reranker,0.7367,0.0091,0.7053,0.0314,EXPERIMENTS.md
+pk-bpo,pk,bpo,baseline,0.4031,,0.4031,0.0000,study_v23 baseline (selective fallback)
+pk-mfo,pk,mfo,baseline,0.4831,,0.4831,0.0000,study_v23 baseline (selective fallback)
+pk-cco,pk,cco,baseline,0.6009,,0.6009,0.0000,study_v23 baseline (selective fallback)
+
+aggregate,selective_avg,0.6215,leaky_avg,0.4562,delta_vs_leaky,0.1653,delta_vs_all_baseline,0.0397

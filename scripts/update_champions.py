@@ -385,6 +385,16 @@ CHAMPIONS_HEADER = (
     "\n"
 )
 
+# Marker pair delimiting a manually-curated appendix that survives
+# ``--apply`` re-renders. The appendix records champions for which no
+# FARM-EXP.3-format run record exists yet (pre-FARM-EXP.5 writer
+# slices). Once the writer lands and the auto-walker promotes a real
+# record for the same ``(eval_set, tier, aspect)`` triple, the manual
+# entry can be retired by deletion. The markers are HTML comments so
+# they render invisibly in GitHub-flavoured Markdown.
+MANUAL_ENTRIES_BEGIN = "<!-- MANUAL_ENTRIES_BEGIN -->"
+MANUAL_ENTRIES_END = "<!-- MANUAL_ENTRIES_END -->"
+
 
 def _format_axis(axis: dict[str, Any]) -> str:
     """Render an axis dict as ``key=value, key=value, ...`` (sorted)."""
@@ -395,10 +405,39 @@ def _format_axis(axis: dict[str, Any]) -> str:
     return ", ".join(parts)
 
 
+def extract_manual_appendix(existing_text: str) -> str:
+    """Pull the manual-entries appendix out of an existing champions.md.
+
+    Returns the substring delimited by :data:`MANUAL_ENTRIES_BEGIN`
+    and :data:`MANUAL_ENTRIES_END` markers (markers included), with a
+    leading newline so it appends cleanly. Returns an empty string
+    when either marker is absent or the file has no manual entries.
+    """
+    begin = existing_text.find(MANUAL_ENTRIES_BEGIN)
+    end = existing_text.find(MANUAL_ENTRIES_END)
+    if begin == -1 or end == -1 or end < begin:
+        return ""
+    # Include the END marker itself.
+    end_inclusive = end + len(MANUAL_ENTRIES_END)
+    block = existing_text[begin:end_inclusive]
+    if not block.endswith("\n"):
+        block += "\n"
+    return "\n" + block
+
+
 def render_champions_md(
     winners: dict[TriplKey, ChampionRecord],
+    *,
+    manual_appendix: str = "",
 ) -> str:
-    """Render the full champions.md body."""
+    """Render the full champions.md body.
+
+    ``manual_appendix`` is the preserved manual-entries block extracted
+    from the existing file via :func:`extract_manual_appendix`. It is
+    appended verbatim after the auto-generated body so manually
+    documented champions (records with no FARM-EXP.3 run.json yet)
+    survive ``--apply`` runs.
+    """
     if not winners:
         return (
             CHAMPIONS_HEADER
@@ -406,6 +445,7 @@ def render_champions_md(
             "champions table will populate once runner slices "
             "(FARM-EXP.5+) write run records carrying the canonical "
             "axis block + fmax_samples array._\n"
+            + manual_appendix
         )
 
     eval_sets = sorted({k.eval_set for k in winners})
@@ -448,6 +488,8 @@ def render_champions_md(
                     f"| {ci} | {run_id} | {axis_str} |\n"
                 )
             out.append("\n")
+    if manual_appendix:
+        out.append(manual_appendix)
     return "".join(out)
 
 
@@ -590,9 +632,22 @@ def run(
     buckets = group_by_triple(pairs)
     winners, traces = compute_champions(buckets)
 
+    # Preserve the manually-curated appendix from the existing file
+    # so pre-FARM-EXP.3 manual entries survive ``--apply`` re-renders.
+    manual_appendix = ""
+    if champions_file.exists():
+        try:
+            manual_appendix = extract_manual_appendix(
+                champions_file.read_text()
+            )
+        except OSError:
+            manual_appendix = ""
+
     if apply:
         champions_file.parent.mkdir(parents=True, exist_ok=True)
-        champions_file.write_text(render_champions_md(winners))
+        champions_file.write_text(
+            render_champions_md(winners, manual_appendix=manual_appendix)
+        )
         planned = write_symlinks(
             winners, symlink_root, dry_run=False
         )
