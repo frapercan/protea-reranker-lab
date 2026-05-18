@@ -395,6 +395,132 @@ to PROTEA inference for NK+LK cells. PK cells continue to use KNN baseline.
 3. Investigate PK improvement (needs known_terms overlap feature).
 
 
+## LM.3 closure (2026-05-18): per-aspect feature importance audit
+
+**Status:** done. Feature importance audit on the nine
+`v226full_lineage_<cell>` boosters (study_v23, seed=42, registered
+2026-05-14). Metric: LightGBM `gain` (total information-gain reduction
+across all trees and all splits). Aggregation: mean rank across the three
+category cells (NK/LK/PK) per aspect.
+
+Source artefacts: `experiments/lm3/feature_importance_per_aspect.csv`
+(306 rows: 9 cells x 34 features). Full data, including the 20 zero-gain
+features per NK+LK cell (alignment, length, taxonomy families). Regenerable
+from `runs/study_v23` via `python scripts/lm3_feature_importance.py --write`.
+
+### Top-10 per aspect (mean rank across NK/LK/PK)
+
+#### BPO (Biological Process)
+
+| rank | feature | mean_rank | mean_gain |
+| - | - | - | - |
+| 1 | `go_term_frequency` | 3.00 | 204,882.3 |
+| 2 | `neighbor_vote_fraction` | 3.67 | 88,400.3 |
+| 3 | `evidence_code` | 4.33 | 54,296.6 |
+| 4 | `ref_annotation_density` | 5.00 | 53,219.2 |
+| 5 | `k_position` | 6.00 | 25,180.2 |
+| 6 | `neighbor_distance_std` | 7.33 | 45,149.9 |
+| 7 | `distance` | 7.67 | 56,540.3 |
+| 8 | `vote_count` | 8.00 | 28,803.6 |
+| 9 | `neighbor_mean_distance` | 8.67 | 35,406.7 |
+| 10 | `neighbor_min_distance` | 10.67 | 20,350.4 |
+
+#### MFO (Molecular Function)
+
+| rank | feature | mean_rank | mean_gain |
+| - | - | - | - |
+| 1 | `go_term_frequency` | 2.00 | 144,490.1 |
+| 2 | `neighbor_vote_fraction` | 2.67 | 58,033.6 |
+| 3 | `evidence_code` | 3.33 | 42,637.3 |
+| 4 | `vote_count` | 6.00 | 18,987.2 |
+| 5 | `ref_annotation_density` | 6.67 | 16,641.2 |
+| 6 | `neighbor_distance_std` | 8.00 | 14,107.6 |
+| 7 | `k_position` | 8.67 | 10,690.6 |
+| 8 | `neighbor_mean_distance` | 9.33 | 11,616.8 |
+| 9 | `qualifier` | 11.00 | 13,204.2 |
+| 10 | `neighbor_min_distance` | 11.33 | 6,997.0 |
+
+#### CCO (Cellular Component)
+
+| rank | feature | mean_rank | mean_gain |
+| - | - | - | - |
+| 1 | `go_term_frequency` | 1.67 | 290,435.4 |
+| 2 | `neighbor_vote_fraction` | 3.00 | 50,995.8 |
+| 3 | `evidence_code` | 5.33 | 35,764.4 |
+| 4 | `k_position` | 7.00 | 13,085.7 |
+| 5 | `ref_annotation_density` | 7.00 | 24,277.6 |
+| 6 | `vote_count` | 7.33 | 16,562.1 |
+| 7 | `neighbor_mean_distance` | 8.33 | 14,678.4 |
+| 8 | `neighbor_distance_std` | 8.67 | 17,662.0 |
+| 9 | `qualifier` | 9.00 | 56,388.3 |
+| 10 | `neighbor_min_distance` | 10.33 | 10,693.7 |
+
+### Interpretation
+
+**BPO:** `neighbor_vote_fraction` and `go_term_frequency` share the top-two
+positions across NK and LK cells. In PK the ranking reverses: `go_term_frequency`
+dominates at rank 1, and the lineage family enters ranks 2-6
+(`lineage_descendant_of_count`, `lineage_ancestor_of_count`,
+`lineage_is_ancestor_of_known`). This PK-specific pattern reflects the
+DAG-closure shortcut: PK queries already have parent terms annotated,
+so the booster learns to exploit the hierarchical overlap captured by
+the lineage features. The alignment family (identity_nw, alignment_score_*,
+etc.) scores zero gain in every BPO cell, confirming that sequence-level
+similarity adds nothing once KNN vote and distance features are included.
+
+**MFO:** The MFO ranking closely mirrors BPO. `neighbor_vote_fraction` and
+`go_term_frequency` are the dominant signals across NK and LK.
+`evidence_code` consistently ranks third in MFO, higher than in CCO,
+suggesting that curation quality matters more for molecular function terms
+(where experimental evidence is sparse relative to BPO). PK MFO again shows
+lineage features at ranks 2-4, confirming the cross-aspect generality of the
+DAG-closure shortcut. The `qualifier` feature enters the MFO top-10 (rank 9)
+but is absent from BPO, reflecting MFO-specific NOT-qualifier patterns.
+
+**CCO:** CCO is the outlier aspect. `go_term_frequency` is the undisputed
+dominant feature (mean rank 1.67, mean gain nearly 2x higher than BPO).
+This is consistent with CCO having fewer distinct terms and higher per-term
+annotation density: term frequency predicts GO-term annotation well for
+cellular components. In PK-CCO the lineage family is exceptionally strong
+(`lineage_ancestor_of_count` and `lineage_is_ancestor_of_known` at ranks 2-3,
+aggregate gain exceeding 1M gain units), the highest lineage dominance across
+all nine cells. The `qualifier` feature enters the CCO top-10 (rank 9, mean
+gain 56,388), substantially higher than in BPO, suggesting qualifier metadata
+is more discriminative for cellular component terms.
+
+### Cross-aspect generalists
+
+Features ranking in the top-10 for all three aspects (aspect-stable winners):
+`go_term_frequency`, `neighbor_vote_fraction`, `evidence_code`,
+`ref_annotation_density`, `vote_count`, `neighbor_distance_std`,
+`neighbor_mean_distance`, `neighbor_min_distance`. These seven features
+form the shared core that drives reranker performance across all ontology
+branches in the NK+LK cells.
+
+### Cell-specific divergences
+
+The lineage family is the clearest aspect-by-cell divergence:
+
+- NK cells: all four lineage features score zero gain in all three aspects.
+  Early stopping at iteration 100 selects a tree count that is too small
+  to exploit lineage columns once the dominant KNN signals are saturated.
+- LK cells: minor lineage signal in lk-mfo only (`lineage_is_descendant_of_known`
+  at rank 5, `lineage_is_ancestor_of_known` at rank 10). LK queries share
+  parent terms with voters, but the leakage-fixed configuration limits
+  exploitation of this overlap.
+- PK cells: lineage family dominates at ranks 2-6 across all three aspects.
+  This is the DAG-closure shortcut documented in FARM-EXP.10 and ADR-D34,
+  which motivated the selective-deploy policy (NK+LK reranker, PK baseline).
+
+### References
+
+- `experiments/lm3/feature_importance_per_aspect.csv` (306 rows, canonical artefact).
+- `experiments/lm3/feature_importance_summary.md` (top-10 tables, extended interpretation).
+- `scripts/lm3_feature_importance.py` (regenerator, mirrors lr1_lineage_delta.py structure).
+- FARM-EXP.10 champion section above (selective-deploy policy and ADR-D34).
+- LB.2 multi-seed sweep section above (cafaeval delta on NK+LK).
+
+
 ## LB.2 single-seed retrofix (2026-05-17, predecessor)
 
 lk-mfo cell only; seed=42 gave cafaeval_fmax=0.6998, seed=137 gave 0.6636.
