@@ -410,6 +410,55 @@ by reranker quality.
 3. Add K=10 axis (currently K=5 only).
 
 
+## FARM-EXP.8 transversal grid orchestrator (2026-05-18)
+
+**Status:** orchestrator script shipped; sweep execution gated on per-stanza
+ExperimentSpec materialisation.
+
+`scripts/run_transversal_grid.py` is the FARM-EXP.8 grid runner. It reads
+`experiments/_catalog/transversal.yaml` (224 axis-tuple stanzas from
+FARM-EXP.2), expands each stanza into per-cell training jobs (one per
+tier-aspect cell, optionally per seed), schedules them in batches of 10,
+and dispatches each batch through `scripts/run.py`. After every batch the
+FARM-EXP.4 champion auto-updater (`scripts/update_champions.py --apply`)
+fires so the champion table tracks progress.
+
+Key properties:
+
+- **Idempotent**: a job whose `run.json` already reports `status=ok` is
+  skipped on re-invocation. Re-runs are a no-op once a cell completes.
+- **Upfront `run.json`**: every attempt writes a placeholder record
+  (status=pending) before subprocess launch, carrying run_id, shortid,
+  axis tuple, cell tier+aspect, seed, git sha, resolved hparams, and
+  artefact paths. `scripts/run.py` overwrites it with the final ok/failed
+  record. A crash leaves the most recent state on disk.
+- **Blocked path**: when the per-cell spec YAML is absent the orchestrator
+  records `status=blocked, reason=spec_not_materialized` and proceeds
+  without subprocess. The operator materialises the spec when the
+  upstream dataset manifest (LB.1, LR.1, ...) lands and re-invokes.
+- **Filters**: `--plms`, `--features`, `--eval-sets`, `--rerankers`,
+  `--shortids`, `--cells`, `--seeds`, `--limit`, plus `--dry-run` and
+  `--no-champion-update` toggles.
+
+Per-cell artefacts land under `runs/transversal/<shortid>/<cell>/seed<seed>/`
+with `run.json`, `model.txt`, and `predictions.parquet` (the last two on
+status=ok only). `runs/` is gitignored, consistent with the prior
+FARM-EXP.8 partial pass on the leakfree bundle.
+
+The orchestrator does not invent ExperimentSpec YAMLs; the spec lookup
+path is `experiments/_generated/transversal/<shortid>/<cell>_seed<seed>.yaml`.
+Wiring a generator (per-stanza spec materialisation that respects the
+PLM/dataset/reranker axes) is a separate downstream slice; the current
+FARM-EXP.8 leakfree pass already shipped 54 hand-shaped specs under
+`experiments/farm_exp_8/`. Pointing the orchestrator at those (via
+`--spec-root experiments/farm_exp_8/...`) reproduces the prior pass.
+
+Tests live at `tests/test_run_transversal_grid.py` (33 cases) and cover:
+catalog parsing, filter composition, plan cartesian, batch-of-10 grouping,
+upfront run.json shape, idempotent skip on status=ok, blocked path, dry
+run, subprocess dispatch, and champion-update invocation cadence.
+
+
 ## FARM-EXP.9 pre-leakage cell re-run, partial pass (2026-05-18)
 
 **Status:** partial pass complete for replication cells (NK+LK all 3 seeds done,
