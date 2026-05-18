@@ -1,0 +1,10 @@
+cell,category,aspect,reranker_lab_fmax,baseline_lab_fmax,delta
+nk-bpo,nk,bpo,0.0401,0.0401,0.0000
+nk-mfo,nk,mfo,0.1927,0.1927,0.0000
+nk-cco,nk,cco,0.1473,0.1473,0.0000
+lk-bpo,lk,bpo,0.0482,0.0498,-0.0016
+lk-mfo,lk,mfo,0.1526,0.1663,-0.0138
+lk-cco,lk,cco,0.1140,0.1140,0.0000
+pk-bpo,pk,bpo,0.0395,0.0165,0.0230
+pk-mfo,pk,mfo,0.1374,0.0791,0.0583
+pk-cco,pk,cco,0.1191,0.0796,0.0395
