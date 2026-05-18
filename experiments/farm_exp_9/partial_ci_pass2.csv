@@ -1,0 +1,10 @@
+cell,category,aspect,seeds_done,status,new_fmax_mean,new_fmax_ci_lo,new_fmax_ci_hi,old_fmax_mean,paired_diff_mean,paired_diff_ci_lo,paired_diff_ci_hi,sig_95,note
+nk-bpo,nk,bpo,0,pending,,,,,,,,,NOT_COMPARABLE: eval set + feature set changed
+nk-mfo,nk,mfo,0,pending,,,,,,,,,NOT_COMPARABLE: eval set + feature set changed
+nk-cco,nk,cco,0,pending,,,,,,,,,NOT_COMPARABLE: eval set + feature set changed
+lk-bpo,lk,bpo,0,pending,,,,,,,,,NOT_COMPARABLE: eval set + feature set changed
+lk-mfo,lk,mfo,0,pending,,,,,,,,,NOT_COMPARABLE: eval set + feature set changed
+lk-cco,lk,cco,0,pending,,,,,,,,,NOT_COMPARABLE: eval set + feature set changed
+pk-bpo,pk,bpo,0,pending,,,,,,,,,NOT_COMPARABLE: eval set + feature set changed
+pk-mfo,pk,mfo,0,pending,,,,,,,,,NOT_COMPARABLE: eval set + feature set changed
+pk-cco,pk,cco,1,partial,0.2855,0.2855,0.2855,0.1285,0.1570,0.1570,0.1570,1,NOT_COMPARABLE: eval set + feature set changed between old and new run
