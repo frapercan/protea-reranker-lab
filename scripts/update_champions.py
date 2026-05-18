@@ -660,7 +660,11 @@ def run(
 
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(
-        description="Champion tracker for FARM-EXP.4.",
+        description=(
+            "Champion tracker for FARM-EXP.4. "
+            "Use --bootstrap to also render the LM.1 bootstrapped "
+            "section from committed CSV artefacts."
+        ),
     )
     p.add_argument(
         "--runs-dir",
@@ -686,6 +690,15 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "write champions.md and refresh symlinks. Without this "
             "flag the script prints what it would do (dry-run)."
+        ),
+    )
+    p.add_argument(
+        "--bootstrap",
+        action="store_true",
+        help=(
+            "also render the LM.1 bootstrapped champion section "
+            "from experiments/lb3, lm3, lr1 CSVs and embed it in "
+            "champions.md (requires --apply to write; otherwise prints)."
         ),
     )
     p.add_argument(
@@ -718,6 +731,24 @@ def main(argv: list[str] | None = None) -> int:
         buckets = group_by_triple(pairs)
         _, traces = compute_champions(buckets)
         sys.stdout.write(render_explain(triple, traces.get(triple)))
+        return 0
+
+    if args.bootstrap:
+        # Delegate to the LM.1 bootstrapped renderer.
+        import render_champions_bootstrap as rcb
+
+        if args.apply:
+            rcb._write_champions_md(
+                args.champions_file,
+                rcb.load_and_render(),
+            )
+            rows = rcb.bootstrap_champion_rows()
+            print(
+                f"[apply] wrote bootstrapped champion section "
+                f"({len(rows)} rows) to {args.champions_file}"
+            )
+        else:
+            sys.stdout.write(rcb.load_and_render())
         return 0
 
     winners, traces, planned = run(

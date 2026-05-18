@@ -47,7 +47,7 @@ from .reranker import (
     fit,
     predict_streaming,
 )
-from .schemas import ManifestV1, required_columns
+from .schemas import ManifestV1
 from .sequences import ParquetFeatureSequence
 from .staging import StageResult, stage_for_training
 
@@ -218,6 +218,11 @@ def run_experiment(
         )}
         report["status"] = "ok"
 
+        # LM.1 champion candidate hook (appends to champions.candidates.md).
+        _maybe_append_champion_candidate(
+            spec.training.cell, float(fmax), run_id, out_dir
+        )
+
         if wandb_run is not None:
             wandb_run.log({
                 "test_fmax": float(fmax),
@@ -376,6 +381,102 @@ def _write_predictions(
 
 def _dump_report(out_dir: Path, report: dict[str, Any]) -> None:
     (out_dir / "run.json").write_text(json.dumps(report, indent=2, default=float))
+
+
+_CANDIDATES_HEADER = (
+    "# Champion candidates\n\n"
+    "Rows appended automatically by the training hook in "
+    "`src/protea_reranker_lab/runner.py` when a run's lab fmax "
+    "exceeds the prior champion's CI lower bound for that cell.\n\n"
+    "To promote a candidate: verify with the full cafaeval pipeline "
+    "(prop=fill, norm=cafa), then run:\n\n"
+    "    python scripts/update_champions.py --bootstrap --apply\n\n"
+    "champions.md is NEVER auto-mutated by training.\n\n"
+    "| cell | run_id | test_fmax | ci_lower_bound | date_detected |\n"
+    "| --- | --- | --- | --- | --- |\n"
+)
+
+
+def _lb3_cell_ci(lb3_path: Path, cell: str) -> float | None:
+    """Return paired_diff_ci_lo for ``cell`` from the LB.3 CSV, or None."""
+    import csv as _csv
+
+    with lb3_path.open(newline="") as fh:
+        for row in _csv.DictReader(fh):
+            if row["cell"] == cell:
+                return float(row["paired_diff_ci_lo"])
+    return None
+
+
+def _append_candidate_row(
+    candidates_path: Path,
+    cell: str,
+    run_id: str,
+    test_fmax: float,
+    ci_lower: float,
+) -> None:
+    """Append one row to ``champions.candidates.md`` (creating it if absent)."""
+    import datetime as _dt
+
+    now_iso = _dt.date.today().isoformat()
+    row_line = (
+        f"| {cell} | {run_id} | {test_fmax:.4f} "
+        f"| {ci_lower:.4f} | {now_iso} |\n"
+    )
+    if candidates_path.exists():
+        candidates_path.write_text(candidates_path.read_text() + row_line)
+    else:
+        candidates_path.write_text(_CANDIDATES_HEADER + row_line)
+    print(
+        f"[champion-hook] NEW CANDIDATE for cell {cell!r}: "
+        f"test_fmax={test_fmax:.4f} > ci_lo={ci_lower:.4f}. "
+        f"Run ID: {run_id}. Row appended to {candidates_path}. "
+        "Verify with cafaeval, then run: "
+        "python scripts/update_champions.py --bootstrap --apply",
+        file=sys.stderr,
+    )
+
+
+def _maybe_append_champion_candidate(
+    cell: str,
+    test_fmax: float,
+    run_id: str,
+    out_dir: Path,
+) -> None:
+    """Append a candidate row when test_fmax clears the champion CI lower bound.
+
+    Reads ``experiments/lb3/per_cell_paired_ci.csv`` for the threshold.
+    champions.md is NEVER mutated here; operator promotes via
+    ``python scripts/update_champions.py --bootstrap --apply``.
+    All errors are caught and logged; a hook failure never aborts training.
+    """
+    repo_root = Path(__file__).resolve().parents[3]
+    lb3_path = repo_root / "experiments" / "lb3" / "per_cell_paired_ci.csv"
+    candidates_path = repo_root / "champions.candidates.md"
+
+    try:
+        if not lb3_path.exists():
+            print(
+                f"[champion-hook] {lb3_path} not found; skipping.",
+                file=sys.stderr,
+            )
+            return
+        ci_lower = _lb3_cell_ci(lb3_path, cell)
+        if ci_lower is None:
+            print(
+                f"[champion-hook] cell {cell!r} not in {lb3_path}; skipping.",
+                file=sys.stderr,
+            )
+            return
+        if test_fmax <= ci_lower:
+            return
+        _append_candidate_row(candidates_path, cell, run_id, test_fmax, ci_lower)
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"[champion-hook] warning: candidate check failed for "
+            f"cell {cell!r} (run {run_id}): {exc}",
+            file=sys.stderr,
+        )
 
 
 def _apply_overrides(spec: ExperimentSpec, overrides: dict[str, Any]) -> ExperimentSpec:
