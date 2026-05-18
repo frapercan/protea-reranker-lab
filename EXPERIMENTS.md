@@ -410,6 +410,97 @@ by reranker quality.
 3. Add K=10 axis (currently K=5 only).
 
 
+## FARM-EXP.9 pre-leakage cell re-run, partial pass (2026-05-18)
+
+**Status:** partial pass complete for replication cells (NK+LK all 3 seeds done,
+PK 2/3 seeds done for pk-mfo, pk-cco pending); 2 ablation cells done; 69 cells
+remain pending.
+
+Re-runs the pre-leakage study cells (originally trained on bench-v1-K5 with 52
+features including anc2vec leakage columns) on the leakage-free eval set
+bench-v1-K5-filtered, dropping the 22 leakage-family columns:
+
+- anc2vec family: anc2vec_has_emb, anc2vec_neighbor_cos, anc2vec_neighbor_maxcos,
+  anc2vec_query_known_cos, anc2vec_query_known_count, anc2vec_query_known_maxcos
+- emb_pca family: emb_pca_query_0 through emb_pca_query_15 (16 columns)
+
+Dataset: bench-v1-K5-filtered (eval v220-v230, anc2vec leakage genes removed from
+the query-known set). Val strategy: temporal, holdout v215-v220, seed {42, 7, 137}.
+
+### Scope
+
+- **Replication cells** (27 total = 9 cells x 3 seeds): lgbm.per_cell_9,
+  lambdarank, r=5000, es=50, L=63, lr=0.05.
+- **Ablation cells** (39 total = 3 representative cells x 13 families):
+  nk-bpo, lk-cco, pk-mfo; each drops one feature family on top of the
+  leakage exclusion list.
+- **Hparam cells** (27 total = nk-bpo only, 3x3x3 grid on num_leaves, lr,
+  neg_pos_ratio): deferred to next pass.
+- Total in scope: 93 cells. Source-of-truth: experiments/farm_exp_9/cells_to_rerun.csv.
+
+### Completed in this partial pass (25 cells)
+
+All 18 NK+LK replication cells (6 cells x 3 seeds), all 3 pk-bpo seeds, pk-mfo
+seeds 42 and 7, and 2 ablation nk-bpo cells (alignment_nw, alignment_sw).
+
+### Per-cell fmax summary (bench-v1-K5-filtered, lab_fmax, 3 seeds unless noted)
+
+```
+cell      new_mean   95% CI half     seeds   old_mean (pre-leakage, bench-v1-K5)
+nk-bpo      0.5874       0.0021       3/3    0.4641  (NOT comparable: eval+feat changed)
+nk-mfo      0.6347       0.0028       3/3    0.4589
+nk-cco      0.7742       0.0007       3/3    0.4831
+lk-bpo      0.6151       0.0010       3/3    0.3523
+lk-mfo      0.5737       0.0006       3/3    0.2416
+lk-cco      0.7881       0.0009       3/3    0.2506
+pk-bpo      0.1362       0.0014       3/3    0.1121
+pk-mfo      0.2821       0.0032       2/3    0.1046
+pk-cco      pending                   0/3    0.1190
+```
+
+CI is 95% percentile bootstrap over seeds (N=10000). Old fmax values are
+lab_fmax on bench-v1-K5 (pre-leakage, 52 features). Delta is NOT interpretable
+as leakage correction effect: eval set and feature set both changed.
+
+### Stop condition check
+
+No champion cell (nk-bpo, nk-mfo, nk-cco, lk-bpo, lk-mfo, lk-cco) has a CI
+entirely below zero. All 6 champion cells show large positive deltas vs pre-leakage
+baseline (range +0.12 to +0.54). No anomalous champion degradation detected.
+
+### Why deltas are large and not interpretable
+
+The large apparent gains are an artefact of comparing incompatible runs:
+1. Eval set changed from bench-v1-K5 (eval v220-v229, 10 snapshots) to
+   bench-v1-K5-filtered (eval v220-v230, 11 snapshots, leakage genes removed).
+2. Feature set changed from 52 features to 34 features (anc2vec + emb_pca dropped).
+3. Pre-leakage scores were inflated by the anc2vec_query_known_* leakage columns;
+   removing them reduces the old side of the comparison artificially.
+
+These deltas are reported solely for anomaly detection (STOP condition guard),
+not as a measurement of leakage correction effect. The leakage correction
+effect is measured in LB.2 and FARM-EXP.10 using cafaeval on a fixed eval set.
+
+### Output artefacts
+
+- experiments/farm_exp_9/cells_to_rerun.csv: canonical cell list (94 rows, 25 done).
+- experiments/farm_exp_9/partial_ci.csv: per-cell CI table (machine-readable).
+- experiments/farm_exp_9/summary.json: full per-cell stats.
+- experiments/farm_exp_9/rep_{cell}_seed{seed}.yaml: 27 replication spec files.
+- experiments/farm_exp_9/abl_{cell}_{family}.yaml: 39 ablation spec files.
+- runs/transversal/farm_exp_9_rep_{cell}_seed{seed}/run.json: per-run records.
+- runs/transversal/farm_exp_9_abl_nk-bpo_{family}/run.json: per-run records.
+- scripts/farm_exp_9_summary.py: regenerator for partial_ci.csv and summary.json.
+- tests/test_farm_exp_9_partial.py: 17 schema/contract tests (all passing).
+
+### Next pass
+
+Run remaining 69 pending cells: pk-mfo seed 137, pk-cco seeds 42/7/137, all
+ablation cells (37 remaining), and hparam grid (27 cells). Estimated total
+compute time: 6-10h additional (PK cells 3-6 min each; ablation cells 5-8 min
+each due to partial feature set changing convergence).
+
+
 ## FARM-EXP.10 champion (2026-05-17)
 
 **Status:** active champion (selective rerank policy on v226-lineage).

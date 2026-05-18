@@ -19,6 +19,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
+    "mypy>=1.0",
 ]
 
 [build-system]

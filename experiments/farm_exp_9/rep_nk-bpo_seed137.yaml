@@ -1,0 +1,57 @@
+schema_version: v1
+name: farm_exp_9_rep_nk-bpo_seed137
+description: FARM-EXP.9 replication re-run on bench-v1-K5-filtered. Cell=nk-bpo, seed=137.
+  Drops anc2vec+emb_pca leakage families. Re-runs study_v9 config on leakage-free
+  eval set. NOT comparable to pre-leakage bench-v1-K5 runs.
+dataset:
+  manifest: datasets/bench-v1-K5-filtered/manifest.json
+model:
+  kind: lgbm_reranker
+  defaults:
+    objective: lambdarank
+    num_boost_round: 5000
+    early_stopping_rounds: 50
+    learning_rate: 0.05
+    num_leaves: 63
+    min_data_in_leaf: 100
+    drop_features:
+    - anc2vec_has_emb
+    - anc2vec_neighbor_cos
+    - anc2vec_neighbor_maxcos
+    - anc2vec_query_known_cos
+    - anc2vec_query_known_count
+    - anc2vec_query_known_maxcos
+    - emb_pca_query_0
+    - emb_pca_query_1
+    - emb_pca_query_2
+    - emb_pca_query_3
+    - emb_pca_query_4
+    - emb_pca_query_5
+    - emb_pca_query_6
+    - emb_pca_query_7
+    - emb_pca_query_8
+    - emb_pca_query_9
+    - emb_pca_query_10
+    - emb_pca_query_11
+    - emb_pca_query_12
+    - emb_pca_query_13
+    - emb_pca_query_14
+    - emb_pca_query_15
+training:
+  cell: nk-bpo
+  val_strategy: temporal
+  val_holdout_snapshot: v215-v220
+  val_fraction: 0.2
+  seed: 137
+  propagate_labels: false
+sweep:
+  backend: none
+output_dir: runs/transversal/farm_exp_9_rep_nk-bpo_seed137
+tags:
+- farm_exp_9
+- study_v9_replication_rerun
+- v6+anc2vec-leakfree
+- bench-v1-K5-filtered
+- nk-bpo
+- seed137
+keep_staging: false
