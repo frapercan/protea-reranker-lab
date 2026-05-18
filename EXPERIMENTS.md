@@ -5,6 +5,84 @@ All entries use dataset eval_snapshot_pair v226-v230 and cafaeval
 (prop=fill, norm=cafa, no_orphans=True, max_terms=500, th_step=0.001).
 
 
+## LB.3 closure (2026-05-18)
+
+**Status:** done. Per-cell paired bootstrap confidence intervals on the
+leakage-fixed champion (esmc_300m, K=5, lgbm.per_cell_9, feat=leakage-free+lineage bundle,
+eval=bench-v1-K5-v226-lineage, prop=fill, ens=none)
+versus the KNN-only baseline, across all 9 cells x 3 aspects. The
+selective-deploy policy (NK+LK reranked, PK baseline fallback) is
+reflected in the table: PK cells carry zero delta by construction.
+
+### Methodology
+
+Seed-level paired bootstrap (N=10000, seed=42, alpha=0.05, two-sided
+95% percentile CI). Data source: the LB.2 multi-seed sweep (3 seeds:
+42, 7, 137), which provides per-seed cafaeval Fmax for both the
+champion arm and the KNN-only baseline on bench-v1-K5-v226-lineage
+(eval v226-v230). Each bootstrap iteration resamples the 3 seed
+observations with replacement (paired: same seed-index drawn for both
+arms) and records the per-iteration mean Fmax difference. The 2.5th
+and 97.5th quantiles of the 10000-iteration distribution form the CI.
+
+Note on pairing level: this is a seed-level paired bootstrap, not a
+protein-level one. The protein-level bootstrap (src/protea_reranker_lab/bootstrap.py)
+requires the raw prediction parquets, which are gitignored. The
+seed-level bootstrap correctly characterises seed-to-seed variability
+in the champion lift. See the LB.2 multi-seed sweep section for the
+broader variance characterisation.
+
+### Per-cell x aspect paired CI (seed-level, 95%)
+
+Machine-readable form: `experiments/lb3/per_cell_paired_ci.csv`.
+Regenerable via `python scripts/lb3_paired_ci.py --write`.
+
+```
+cell       champ   [ci_lo,  ci_hi]   base    [ci_lo,  ci_hi]   delta   [ci_lo,  ci_hi]  sig
+nk-bpo    0.5596  [0.5571, 0.5618]  0.5333  [0.5333, 0.5333]  0.0263  [0.0238, 0.0285]  *
+nk-mfo    0.7065  [0.7041, 0.7112]  0.6447  [0.6447, 0.6447]  0.0618  [0.0594, 0.0665]  *
+nk-cco    0.7774  [0.7733, 0.7830]  0.7000  [0.7000, 0.7000]  0.0774  [0.0733, 0.0830]  *
+lk-bpo    0.6459  [0.6421, 0.6485]  0.5844  [0.5844, 0.5844]  0.0615  [0.0577, 0.0641]  *
+lk-mfo    0.6807  [0.6757, 0.6877]  0.5816  [0.5816, 0.5816]  0.0991  [0.0941, 0.1061]  *
+lk-cco    0.7368  [0.7252, 0.7434]  0.7053  [0.7053, 0.7053]  0.0315  [0.0199, 0.0381]  *
+pk-bpo    0.4030  [0.4030, 0.4030]  0.4030  [0.4030, 0.4030]  0.0000  [0.0000, 0.0000]
+pk-mfo    0.4830  [0.4830, 0.4830]  0.4830  [0.4830, 0.4830]  0.0000  [0.0000, 0.0000]
+pk-cco    0.6010  [0.6010, 0.6010]  0.6010  [0.6010, 0.6010]  0.0000  [0.0000, 0.0000]
+```
+
+(*) sig_95=1: paired_diff_ci_lo > 0 at the 95% level.
+
+### Reading
+
+All 6 NK+LK cells show statistically significant lifts (CI lower bound
+strictly above zero). Smallest lift: lk-cco (+0.0315, CI [+0.0199,
++0.0381]). Largest lift: lk-mfo (+0.0991, CI [+0.0941, +0.1061]).
+PK cells are not significant by policy (the reranker is not deployed
+on PK; the zero delta is by construction, not a null result).
+
+The CI bounds confirm that the champion bar 0.6215 (selective avg
+cafaeval Fmax, 9-cell, 3-seed mean from the LB.2 sweep) is supported
+by statistically significant per-cell lifts across all deployed NK+LK
+cells. No CI crosses zero. The champion claim is not contradicted.
+
+### Acceptance map
+
+- "Each cell x aspect reported as paired bootstrap CI vs baseline":
+  done in the table above and `experiments/lb3/per_cell_paired_ci.csv`.
+- "CSV + plot in lab outputs; consumed by thesis chapter 6":
+  CSV committed at `experiments/lb3/per_cell_paired_ci.csv`. Plot
+  generation is deferred to LM.1 (champion tracking system) which will
+  emit dot-and-whisker plots from the committed CSV.
+
+### References
+
+- LB.2 multi-seed sweep (data source, committed 2026-05-17).
+- LR.1 closure (structural precedent for this section format).
+- `scripts/lb3_paired_ci.py` (regenerator; mirrors `scripts/lr1_lineage_delta.py` layout).
+- `experiments/lb3/per_cell_paired_ci.csv` (canonical CSV artefact).
+- `tests/test_lb3_paired_ci.py` (regression guard on champion bar).
+
+
 ## LR.1 closure (2026-05-18)
 
 **Status:** done. The v22-architectural lineage booster trained on
