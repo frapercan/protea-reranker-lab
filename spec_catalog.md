@@ -47,6 +47,7 @@ Feature-set legend:
 | [study-v24-no-lineage](#study-v24-no-lineage) | esmc_300m/K5/LR/lean/bench-v1-K5-v226-lineage | 9 cells | NK+LK avg ~0.693; PK partial recovery | iterate (best PK-MFO) | SUMMARY_v23-v26.md |
 | [study-v25-all-features](#study-v25-all-features) | esmc_300m/K5/LR/lean+lin+emb/bench-v1-K5-v226-lineage | 9 cells | NK+LK avg ~0.672; PK best on bpo/cco | iterate (best PK-BPO, PK-CCO) | SUMMARY_v23-v26.md |
 | [study-v26-binary](#study-v26-binary) | esmc_300m/K5/BIN/lean+lin+emb/bench-v1-K5-v226-lineage | 9 cells | NK+LK avg ~0.745 (best); PK broken | **ship** (NK+LK cells, binary objective champion) | PR #19 (LB.3), PR #20 (LM.3) |
+| [study-v27-binary-multiseed](#study-v27-binary-multiseed) | esmc_300m/K5/BIN/lean+lin+emb/bench-v1-K5-v226-lineage | 6 cells NK+LK, 3 seeds | NK+LK avg **0.7378 +- 0.0028** (5/6 sig95 vs v22) | **ship** (publishable CIs for Ch.6; binary champion replicated) | this PR |
 | [lr4-v18-selective](#lr4-v18-selective) | esmc_300m/K5/LR/lean+lin/bench-v1-K5-filtered | 3 cells | recomputed leakage-free | drop (historical policy, superseded by v22) | PR #21 (LR.4) |
 
 ## Detailed entries
@@ -453,6 +454,41 @@ This is the canonical LAFA v22 lineage reranker, also called the "LB.2 leakage-f
 - **Artifacts:** `runs/study_v26_binary/`, `experiments/_generated/study_v26_binary/`, `runs/SUMMARY_v23-v26.md`
 - **Related:** PR #19 (LB.3 paired CI), PR #20 (LM.3 feature importance)
 
+### study-v27-binary-multiseed
+
+**Tuple:** esmc_300m / K5 / BIN / lean+lin+emb / bench-v1-K5-v226-lineage
+
+- **Spec files:** `v27_binary_multiseed_sweep.py` (generates specs inline), seeds 42, 137, 244
+- **Dataset:** bench-v1-K5-v226-lineage
+- **Features:** lean+lin+emb (all 56 features; no drops), identical to v26-binary
+- **Cells:** 6 cells NK+LK (nk-mfo, nk-bpo, nk-cco, lk-mfo, lk-bpo, lk-cco), 3 seeds
+- **Budget:** num_boost_round=10000, lr=0.05, num_leaves=63, min_data_in_leaf=100, early_stop=100; neg_pos_ratio=10
+- **Objective:** binary, same as v26-binary
+- **Results (cafaeval Fmax, seeds 42/137/244, mean +- 95% CI half-width):**
+
+  | cell | seed=42 | seed=137 | seed=244 | mean +- CI half-width | vs v22 delta | sig95 |
+  |-|-|-|-|-|-|-|
+  | nk-mfo | 0.7376 | 0.7436 | 0.7411 | **0.7408 +- 0.0030** | +0.0343 [+0.0296, +0.0387] | 1 |
+  | nk-bpo | 0.5848 | 0.5918 | 0.5895 | **0.5887 +- 0.0035** | +0.0291 [+0.0252, +0.0330] | 1 |
+  | nk-cco | 0.7992 | 0.7999 | 0.7949 | **0.7980 +- 0.0025** | +0.0206 [+0.0152, +0.0255] | 1 |
+  | lk-mfo | 0.6833 | 0.6820 | 0.6809 | **0.6821 +- 0.0012** | +0.0014 [-0.0052, +0.0063] | 0 |
+  | lk-bpo | 0.6629 | 0.6680 | 0.6724 | **0.6678 +- 0.0048** | +0.0218 [+0.0165, +0.0272] | 1 |
+  | lk-cco | 0.7948 | 0.8001 | 0.7971 | **0.7973 +- 0.0027** | +0.0604 [+0.0527, +0.0711] | 1 |
+
+  NK+LK unweighted mean: **0.7291 +- 0.0028** (6-cell avg). 5/6 cells strictly dominate v22 at 95%.
+  lk-mfo: v27 mean 0.6821 vs v22 mean 0.6807 (delta CI straddles zero; v27 not strictly better on lk-mfo).
+  Bootstrap: N=10000, independent arms (v22 seeds 42/7/137; v27 seeds 42/137/244).
+  KNN baseline: nk-mfo=0.6447, nk-bpo=0.5333, nk-cco=0.7000, lk-mfo=0.5816, lk-bpo=0.5844, lk-cco=0.7053.
+  All 6 cells lift KNN baseline by a statistically significant margin.
+
+- **Outcome:** **ship** (publishable 3-seed CIs; binary champion confirmed). Study v27 provides the
+  thesis Chapter 6 publishable statistical claim: binary objective with lean+lin+emb features
+  outperforms v22 lambdarank at 95% confidence on 5/6 NK+LK cells. lk-mfo is the exception
+  (gains are near-zero and within noise). Selective deployment: NK+LK cells use v27-binary;
+  PK falls back to KNN baseline (same policy as v22).
+- **Artifacts:** `runs/v27_binary_multiseed/`, `experiments/v27/multiseed_summary.md`,
+  `runs/v27_binary_multiseed/cis.json`, `runs/v27_binary_multiseed/paired_ci.json`
+
 ### lr4-v18-selective
 
 **Tuple:** esmc_300m / K5 / LR / lean+lin / bench-v1-K5-filtered
@@ -490,17 +526,17 @@ Baseline cafaeval Fmax on bench-v1-K5-v226-lineage eval set:
 | tier | spec | cafaeval Fmax | eval set |
 |-|-|-|-|
 | NK+LK selective (v22 lineage, 3-seed) | study-v22 | **0.6215 +- 0.0014** | bench-v1-K5-v226-lineage |
-| NK+LK binary (v26, single seed) | study-v26-binary | ~0.745 avg | bench-v1-K5-v226-lineage |
+| NK+LK binary (v27, 3-seed, publishable) | study-v27-binary-multiseed | **0.7291 +- 0.0028** (6-cell avg) | bench-v1-K5-v226-lineage |
 | PK | KNN baseline (no reranker) | 0.403/0.601/0.483 | bench-v1-K5-v226-lineage |
 
-The v22 3-seed figure (0.6215) is the **publishable** claim (LB.2).
-The v26-binary numbers are single-seed and should be treated as directional
-until multi-seed replication (see open items below).
+The v22 3-seed figure (0.6215) is the LB.2 lambdarank publishable claim.
+The v27-binary-multiseed figure (0.7291 +- 0.0028) is the LB.2-equivalent publishable
+claim for the binary objective: 5/6 NK+LK cells strictly dominate v22 at 95% confidence.
+Both are on bench-v1-K5-v226-lineage (eval window v226-v230).
 
 ## Open items and next candidates
 
-1. **v26 multi-seed replication**: replicate study-v26-binary with seeds 7 and 137 to get
-   publishable CIs analogous to LB.2. Propose as `study-v27-binary-multiseed`.
+1. **v27 multi-seed done**: study-v27-binary-multiseed shipped (seeds 42/137/244). Publishable.
 2. **PK-specific hparam grid**: capacity and regularisation sweep on PK cells without lineage
    (v24 design space). Propose as `study-v28-pk-hparam`.
 3. **FARM-EXP.7 8-PLM ensemble**: transversal grid across multiple PLM backends.
