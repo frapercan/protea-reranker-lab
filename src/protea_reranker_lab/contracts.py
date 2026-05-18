@@ -4,26 +4,25 @@ PROTEA imports only from this module. It is intentionally pydantic-only
 (no LightGBM, no sklearn, no pandas runtime) so installing the lab as a
 dev dependency of PROTEA stays cheap.
 
-Context types (KnnContext, FeatureBuildContext) are sourced from
-protea-contracts>=0.2.0 and re-exported here so PROTEA can import a
-single consistent surface regardless of whether it depends directly on
-protea-contracts.
+All feature-schema symbols and context types (KnnContext, FeatureBuildContext)
+are re-exported from ``protea-contracts>=0.2.0`` so PROTEA can import a
+single consistent surface.
 """
 
 from __future__ import annotations
 
-from protea_contracts.contexts import FeatureBuildContext, KnnContext
-
-from .reranker import ALL_FEATURES, FEATURE_FAMILIES
-from .schemas import (
+from protea_contracts import (
+    ALL_FEATURES,
+    FEATURE_FAMILIES,
     RESERVED_COLUMNS,
     SCHEMA_VERSION,
-    DatasetSpec,
-    ManifestV1,
     compute_feature_schema_sha,
     compute_schema_sha,
     required_columns,
 )
+from protea_contracts.contexts import FeatureBuildContext, KnnContext
+
+from .schemas import DatasetSpec, ManifestV1
 
 __all__ = [
     "ALL_FEATURES",

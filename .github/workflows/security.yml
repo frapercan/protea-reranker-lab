@@ -1,0 +1,47 @@
+name: security
+
+on:
+  push:
+  pull_request:
+  schedule:
+    # Weekly Monday 06:00 UTC: catches new CVEs against pinned deps
+    # even when no PR is open.
+    - cron: "0 6 * * 1"
+
+jobs:
+  pip-audit:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install pip-audit
+        run: pip install pip-audit
+      - name: pip-audit on requirements (non-blocking)
+        # Research sandbox: surface CVEs so the user sees them, but
+        # do not block iteration. Audits the resolved dependency tree
+        # via the installed metadata after a transient install.
+        run: |
+          pip install -e . || true
+          pip-audit --strict --vulnerability-service osv || true
+
+  bandit:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install bandit
+        run: pip install "bandit[toml]"
+      - name: Run bandit on src/ (HIGH severity, HIGH confidence)
+        run: bandit --severity-level high --confidence-level high -r src/ || true

@@ -2,7 +2,7 @@
 # Sequential v10 F1 launcher — invokes scripts/run.py per spec.
 # Resumable: skips runs whose output dir already has a successful run.json.
 set -uo pipefail
-LAB=/home/frapercan/Thesis/repositories/protea-reranker-lab
+LAB="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PY="$LAB/.venv/bin/python"
 SPECS_DIR="$LAB/experiments/_generated/study_v10/f1_replication"
 LOG="$LAB/logs/study_v10_f1.log"

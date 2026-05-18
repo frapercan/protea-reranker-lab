@@ -1,9 +1,9 @@
 """Data contracts for the lab: dataset spec, build manifest, schema hashing.
 
-The row-level schema (52 features + reserved cols) lives in ``reranker.py``
-and is enforced via the parquet column set plus ``schema_sha`` in the manifest.
-Per-row pydantic validation is deliberately skipped — millions of rows make
-it prohibitive; we validate the *shape*, not each sample.
+All feature-schema constants are imported from ``protea-contracts`` (the
+canonical source of truth). Per-row pydantic validation is deliberately
+skipped — millions of rows make it prohibitive; we validate the *shape*,
+not each sample.
 """
 
 from __future__ import annotations
@@ -14,58 +14,14 @@ from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
-
-from .reranker import ALL_FEATURES, FEATURE_FAMILIES
-
-
-SCHEMA_VERSION = "v2"
-
-RESERVED_COLUMNS: tuple[str, ...] = (
-    "protein_accession", "go_term_id", "label",
-    "category", "aspect", "snapshot_pair",
+from protea_contracts import (
+    FEATURE_FAMILIES,
+    RESERVED_COLUMNS,
+    SCHEMA_VERSION,
+    compute_feature_schema_sha,
+    compute_schema_sha,
+    required_columns,
 )
-
-
-def required_columns(families: list[str] | None = None,
-                     drop: list[str] | None = None) -> list[str]:
-    drop_set = set(drop or [])
-    if families is None:
-        feats = list(ALL_FEATURES)
-    else:
-        feats = []
-        for fam in families:
-            feats.extend(FEATURE_FAMILIES[fam])
-    seen: set[str] = set()
-    out: list[str] = []
-    for col in (*RESERVED_COLUMNS, *feats):
-        if col in drop_set or col in seen:
-            continue
-        seen.add(col)
-        out.append(col)
-    return out
-
-
-def compute_schema_sha(columns: list[str]) -> str:
-    blob = "|".join(sorted(columns)).encode()
-    return hashlib.sha256(blob).hexdigest()[:12]
-
-
-def compute_feature_schema_sha(families: list[str],
-                               drop: list[str] | None = None) -> str:
-    """Feature-family-aware schema fingerprint.
-
-    Binds the selected families *and* their column lists together, so a
-    rename or semantic change of a family's columns changes the sha even
-    if the final column set happens to collide.
-    """
-    parts: list[str] = []
-    for fam in sorted(families):
-        cols = FEATURE_FAMILIES[fam]
-        parts.append(f"{fam}={','.join(sorted(cols))}")
-    if drop:
-        parts.append("drop=" + ",".join(sorted(drop)))
-    blob = "|".join(parts).encode()
-    return hashlib.sha256(blob).hexdigest()[:12]
 
 
 class DatasetSpec(BaseModel):

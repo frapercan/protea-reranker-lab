@@ -1,0 +1,244 @@
+{
+  "thresholds": {
+    "file_loc": 800,
+    "class_loc": 500,
+    "method_loc": 60,
+    "param_count": 6
+  },
+  "offenders": [
+    {
+      "key": "method::src/protea_reranker_lab/bootstrap.py::bootstrap_paired_fmax",
+      "kind": "method",
+      "path": "src/protea_reranker_lab/bootstrap.py",
+      "name": "bootstrap_paired_fmax",
+      "line": 74,
+      "metric": 95,
+      "threshold": 60
+    },
+    {
+      "key": "params::src/protea_reranker_lab/bootstrap.py::bootstrap_paired_fmax",
+      "kind": "params",
+      "path": "src/protea_reranker_lab/bootstrap.py",
+      "name": "bootstrap_paired_fmax",
+      "line": 74,
+      "metric": 9,
+      "threshold": 6
+    },
+    {
+      "key": "params::src/protea_reranker_lab/data.py::iter_batches",
+      "kind": "params",
+      "path": "src/protea_reranker_lab/data.py",
+      "name": "iter_batches",
+      "line": 58,
+      "metric": 7,
+      "threshold": 6
+    },
+    {
+      "key": "method::src/protea_reranker_lab/reranker.py::fit",
+      "kind": "method",
+      "path": "src/protea_reranker_lab/reranker.py",
+      "name": "fit",
+      "line": 57,
+      "metric": 73,
+      "threshold": 60
+    },
+    {
+      "key": "params::src/protea_reranker_lab/reranker.py::fit",
+      "kind": "params",
+      "path": "src/protea_reranker_lab/reranker.py",
+      "name": "fit",
+      "line": 57,
+      "metric": 9,
+      "threshold": 6
+    },
+    {
+      "key": "method::src/protea_reranker_lab/runner.py::run_experiment",
+      "kind": "method",
+      "path": "src/protea_reranker_lab/runner.py",
+      "name": "run_experiment",
+      "line": 79,
+      "metric": 170,
+      "threshold": 60
+    },
+    {
+      "key": "file::src/protea_reranker_lab/staging.py::",
+      "kind": "file",
+      "path": "src/protea_reranker_lab/staging.py",
+      "name": "",
+      "line": 0,
+      "metric": 889,
+      "threshold": 800
+    },
+    {
+      "key": "params::src/protea_reranker_lab/staging.py::_scan_pass0",
+      "kind": "params",
+      "path": "src/protea_reranker_lab/staging.py",
+      "name": "_scan_pass0",
+      "line": 128,
+      "metric": 7,
+      "threshold": 6
+    },
+    {
+      "key": "params::src/protea_reranker_lab/staging.py::_decide_split",
+      "kind": "params",
+      "path": "src/protea_reranker_lab/staging.py",
+      "name": "_decide_split",
+      "line": 255,
+      "metric": 8,
+      "threshold": 6
+    },
+    {
+      "key": "method::src/protea_reranker_lab/staging.py::_pass1_route_and_write",
+      "kind": "method",
+      "path": "src/protea_reranker_lab/staging.py",
+      "name": "_pass1_route_and_write",
+      "line": 389,
+      "metric": 104,
+      "threshold": 60
+    },
+    {
+      "key": "params::src/protea_reranker_lab/staging.py::_pass1_route_and_write",
+      "kind": "params",
+      "path": "src/protea_reranker_lab/staging.py",
+      "name": "_pass1_route_and_write",
+      "line": 389,
+      "metric": 15,
+      "threshold": 6
+    },
+    {
+      "key": "method::src/protea_reranker_lab/staging.py::stage_eval_only",
+      "kind": "method",
+      "path": "src/protea_reranker_lab/staging.py",
+      "name": "stage_eval_only",
+      "line": 572,
+      "metric": 66,
+      "threshold": 60
+    },
+    {
+      "key": "params::src/protea_reranker_lab/staging.py::stage_eval_only",
+      "kind": "params",
+      "path": "src/protea_reranker_lab/staging.py",
+      "name": "stage_eval_only",
+      "line": 572,
+      "metric": 8,
+      "threshold": 6
+    },
+    {
+      "key": "method::src/protea_reranker_lab/staging.py::stage_for_training",
+      "kind": "method",
+      "path": "src/protea_reranker_lab/staging.py",
+      "name": "stage_for_training",
+      "line": 640,
+      "metric": 178,
+      "threshold": 60
+    },
+    {
+      "key": "params::src/protea_reranker_lab/staging.py::stage_for_training",
+      "kind": "params",
+      "path": "src/protea_reranker_lab/staging.py",
+      "name": "stage_for_training",
+      "line": 640,
+      "metric": 16,
+      "threshold": 6
+    },
+    {
+      "key": "method::src/protea_reranker_lab/staging.py::_stream_eval",
+      "kind": "method",
+      "path": "src/protea_reranker_lab/staging.py",
+      "name": "_stream_eval",
+      "line": 820,
+      "metric": 69,
+      "threshold": 60
+    },
+    {
+      "key": "params::src/protea_reranker_lab/staging.py::_stream_eval",
+      "kind": "params",
+      "path": "src/protea_reranker_lab/staging.py",
+      "name": "_stream_eval",
+      "line": 820,
+      "metric": 12,
+      "threshold": 6
+    },
+    {
+      "key": "params::scripts/bootstrap_cis.py::run",
+      "kind": "params",
+      "path": "scripts/bootstrap_cis.py",
+      "name": "run",
+      "line": 437,
+      "metric": 7,
+      "threshold": 6
+    },
+    {
+      "key": "params::scripts/build_study_specs.py::_base_spec",
+      "kind": "params",
+      "path": "scripts/build_study_specs.py",
+      "name": "_base_spec",
+      "line": 76,
+      "metric": 11,
+      "threshold": 6
+    },
+    {
+      "key": "method::scripts/check_smells.py::main",
+      "kind": "method",
+      "path": "scripts/check_smells.py",
+      "name": "main",
+      "line": 211,
+      "metric": 65,
+      "threshold": 60
+    },
+    {
+      "key": "method::scripts/lm3_feature_importance.py::write_summary",
+      "kind": "method",
+      "path": "scripts/lm3_feature_importance.py",
+      "name": "write_summary",
+      "line": 168,
+      "metric": 104,
+      "threshold": 60
+    },
+    {
+      "key": "method::scripts/run_bootstrap_phase.py::main",
+      "kind": "method",
+      "path": "scripts/run_bootstrap_phase.py",
+      "name": "main",
+      "line": 46,
+      "metric": 63,
+      "threshold": 60
+    },
+    {
+      "key": "method::scripts/run_cafaeval_phase.py::main",
+      "kind": "method",
+      "path": "scripts/run_cafaeval_phase.py",
+      "name": "main",
+      "line": 222,
+      "metric": 82,
+      "threshold": 60
+    },
+    {
+      "key": "method::scripts/run_study.py::run_phase",
+      "kind": "method",
+      "path": "scripts/run_study.py",
+      "name": "run_phase",
+      "line": 87,
+      "metric": 66,
+      "threshold": 60
+    },
+    {
+      "key": "method::scripts/update_champions.py::_walk_triple",
+      "kind": "method",
+      "path": "scripts/update_champions.py",
+      "name": "_walk_triple",
+      "line": 261,
+      "metric": 90,
+      "threshold": 60
+    },
+    {
+      "key": "method::scripts/update_champions.py::main",
+      "kind": "method",
+      "path": "scripts/update_champions.py",
+      "name": "main",
+      "line": 606,
+      "metric": 111,
+      "threshold": 60
+    }
+  ]
+}

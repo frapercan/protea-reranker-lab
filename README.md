@@ -9,6 +9,15 @@ fits LightGBM via a **streaming** PyArrow pipeline (no pandas materialisation),
 evaluates per-cell, and publishes the winning booster back to PROTEA's
 `RerankerModel` registry.
 
+**Status:** v0.2.0 (active research sandbox, pre-1.0; no stable public API; results published to PROTEA via `POST /reranker-models/import-by-reference`).
+See the [PROTEA stack architecture](https://github.com/frapercan/PROTEA#repositories-in-the-protea-stack) for where this package fits.
+
+**Install + smoke test:**
+```bash
+pip install -e .
+python scripts/run.py experiments/example.yaml
+```
+
 ## Repo layout
 
 ```
@@ -33,7 +42,7 @@ protea-reranker-lab/
 │   └── train.py               # CLI wrapper around run_experiment
 ├── scripts/
 │   ├── run.py                 # run a single ExperimentSpec YAML
-│   ├── build_study_specs.py   # generate the v9 study YAMLs (F1/F2/F4)
+│   ├── build_study_specs.py   # generate the historical study YAMLs (F1/F2/F4)
 │   ├── run_study.py           # sequential, resumable phase orchestrator
 │   ├── run_bootstrap_phase.py # F3 paired bootstrap driver
 │   ├── summarise_study.py     # aggregate phase CSVs → SUMMARY.md
@@ -84,14 +93,76 @@ float32 numerics.
 `stage_for_training` produces sorted-by-protein bucket parquet files plus
 `labels.npy` / `groups.npy` / `proteins.npy`. The trainer reads features
 through `ParquetFeatureSequence` (an `lgb.Sequence` that lazy-loads row
-groups) so RSS during fit stays bounded — peak ≈ 12 GB on the largest cell
-(nk-bpo, 27.6M rows × 52 features).
+groups) so RSS during fit stays bounded. Peak is approximately 12 GB on the largest cell
+(nk-bpo, 27.6M rows x 52 features).
 
 Optional True-Path-Rule label propagation (`propagate_labels=True` +
-`parent_map.json`) is **off by default** — the bench-v1-K5 dataset is
+`parent_map.json`) is **off by default**: the bench-v1-K5 dataset is
 generated with PROTEA's reconciled-mode evaluation, which already applies
 ancestor closure before producing `gt_pairs`. Re-propagating in the lab
 causes double-propagation and degrades fmax.
+
+## Test
+
+The lab ships without a formal `pytest` test suite (it is a research
+sandbox). Functional correctness is guarded by the study pipeline itself:
+
+```bash
+# Smoke: run a single lightweight experiment spec
+python scripts/run.py experiments/example.yaml
+
+# End-to-end study phases (requires the bench-v1-K5 dataset at datasets/)
+python scripts/run_study.py f1      # 27 replication specs
+python scripts/summarise_study.py   # aggregate results to SUMMARY.md
+```
+
+The `example.yaml` experiment spec is designed to complete in under 5 minutes
+on CPU with a small parquet slice. It validates the full data pipeline
+(stage, fit, evaluate, summarise) without needing the full bench-v1-K5 dataset.
+
+Linting and type checks:
+
+```bash
+pip install -e ".[dev]"
+ruff check src scripts
+mypy src
+```
+
+## Contributing
+
+Contributions are welcome from research collaborators.
+
+**Branch strategy:** all changes go to `develop`; `main` tracks stable
+releases only.
+
+```bash
+git clone https://github.com/frapercan/protea-reranker-lab.git
+cd protea-reranker-lab
+git checkout develop
+git checkout -b feature/my-feature
+
+pip install -e ".[dev]"
+
+# Make your changes, then verify locally:
+python scripts/run.py experiments/example.yaml
+ruff check src scripts
+mypy src
+
+# Open a pull request targeting develop
+```
+
+Key constraints:
+- Dataset artefacts (`datasets/`, `runs/`) are git-ignored. Never commit
+  large parquet files or trained models.
+- The lab is a consumer of PROTEA's artifact store, not a replacement.
+  Changes that require PROTEA API modifications belong in PROTEA, not here.
+- PROTEA's `feature_schema_sha` must match the lab's feature layout. If
+  you add or rename features, update both repos in a coordinated PR pair
+  and bump `protea-contracts` accordingly.
+
+## License
+
+MIT. See `LICENSE`.
 
 <!-- protea-stack:start -->
 
