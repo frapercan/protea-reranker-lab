@@ -1,5 +1,6 @@
 """protea-reranker-lab: frozen-feature reranker experimentation."""
 
+from .contracts import FeatureBuildContext, KnnContext
 from .schemas import (
     DatasetSpec,
     ManifestV1,
@@ -23,6 +24,8 @@ __version__ = "0.3.0"
 
 __all__ = [
     "DatasetSpec",
+    "FeatureBuildContext",
+    "KnnContext",
     "ManifestV1",
     "SCHEMA_VERSION",
     "build_dataset",

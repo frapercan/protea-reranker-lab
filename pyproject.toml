@@ -4,7 +4,6 @@ version = "0.2.0"
 description = "Research sandbox for iterating on PROTEA's GO-term reranker."
 requires-python = ">=3.12,<4.0"
 dependencies = [
-    "protea-contracts @ git+https://github.com/frapercan/protea-contracts.git@main",
     "lightgbm>=4.3",
     "numpy>=1.26",
     "pandas>=2.2",
@@ -13,6 +12,7 @@ dependencies = [
     "scikit-learn>=1.4",
     "wandb>=0.16",
     "pyyaml>=6",
+    "protea-contracts @ git+https://github.com/frapercan/protea-contracts.git@v0.2.0",
     "matplotlib>=3.8",
 ]
 
