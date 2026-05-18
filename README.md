@@ -42,7 +42,7 @@ protea-reranker-lab/
 │   └── train.py               # CLI wrapper around run_experiment
 ├── scripts/
 │   ├── run.py                 # run a single ExperimentSpec YAML
-│   ├── build_study_specs.py   # generate the v9 study YAMLs (F1/F2/F4)
+│   ├── build_study_specs.py   # generate the historical study YAMLs (F1/F2/F4)
 │   ├── run_study.py           # sequential, resumable phase orchestrator
 │   ├── run_bootstrap_phase.py # F3 paired bootstrap driver
 │   ├── summarise_study.py     # aggregate phase CSVs → SUMMARY.md
