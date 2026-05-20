@@ -1,14 +1,14 @@
-# v27-binary-multiseed: publishable CI summary
+# binary-objective per-cell recipe (study 27): publishable CI summary
 
-Study: study-v27-binary-multiseed
+Study: study-27 (binary-objective per-cell recipe, multiseed).
 Hparams: binary objective, lean+lin+emb (56 features), neg_pos_ratio=10,
   num_boost_round=10000, lr=0.05, num_leaves=63, min_data_in_leaf=100,
   early_stopping_rounds=100.
-Seeds: 42, 137, 244 (3-seed replication of v26-binary champion).
+Seeds: 42, 137, 244 (3-seed replication of the study-26 binary champion).
 Eval set: bench-v1-K5-v226-lineage-prostt5 (eval window v226-v230).
 Cafaeval: prop=fill, norm=cafa, no_orphans=True.
 
-## Per-cell cafaeval Fmax: v27-binary (mean +- 95% CI half-width)
+## Per-cell cafaeval Fmax: binary recipe study 27 (mean +- 95% CI half-width)
 
 | cell | seed=42 | seed=137 | seed=244 | mean | CI half-width |
 |-|-|-|-|-|-|
@@ -19,14 +19,14 @@ Cafaeval: prop=fill, norm=cafa, no_orphans=True.
 | lk-bpo | 0.6629 | 0.6680 | 0.6724 | 0.6678 | 0.0048 |
 | lk-cco | 0.7948 | 0.8001 | 0.7971 | 0.7973 | 0.0027 |
 
-## v27-binary vs v22-lambdarank (LB.2) comparison
+## binary recipe (study 27) vs lambdarank (study 22, LB.2) comparison
 
-v22 seeds: 42, 7, 137 (LB.2, leakage-fixed lambdarank, lean+lin features).
-v27 seeds: 42, 137, 244 (this run, binary objective, lean+lin+emb features).
+lambdarank (study 22) seeds: 42, 7, 137 (LB.2, leakage-fixed lambdarank, lean+lin features).
+binary (study 27) seeds: 42, 137, 244 (this run, binary objective, lean+lin+emb features).
 Bootstrap: N=10000, independent arms (different seed sets).
 sig_95: 1 if delta 95% CI lower bound > 0.
 
-| cell | v27 mean | v22 mean | delta | delta 95% CI | sig_95 |
+| cell | binary (study 27) mean | lambdarank (study 22) mean | delta | delta 95% CI | sig_95 |
 |-|-|-|-|-|-|
 | nk-mfo | 0.7408 | 0.7065 | +0.0343 | [+0.0296, +0.0387] | 1 |
 | nk-bpo | 0.5887 | 0.5596 | +0.0291 | [+0.0252, +0.0330] | 1 |
@@ -35,9 +35,9 @@ sig_95: 1 if delta 95% CI lower bound > 0.
 | lk-bpo | 0.6678 | 0.6459 | +0.0218 | [+0.0165, +0.0272] | 1 |
 | lk-cco | 0.7973 | 0.7368 | +0.0604 | [+0.0527, +0.0711] | 1 |
 
-## v26-binary single-seed vs v27-binary multiseed comparison
+## binary single-seed (study 26) vs binary multiseed (study 27) comparison
 
-| cell | v26 (seed=42) | v27 mean | delta |
+| cell | study 26 (seed=42) | study 27 mean | delta |
 |-|-|-|-|
 | nk-mfo | 0.7376 | 0.7408 | +0.0032 |
 | nk-bpo | 0.5848 | 0.5887 | +0.0039 |
@@ -59,5 +59,5 @@ sig_95: 1 if delta 95% CI lower bound > 0.
 
 ## Outcome
 
-See experiments/v27/multiseed_summary.md for the full CI table.
+See the per-cell CI table above for the full multiseed results.
 Artifact root: runs/v27_binary_multiseed/

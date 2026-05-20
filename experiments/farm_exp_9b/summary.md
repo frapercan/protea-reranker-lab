@@ -5,11 +5,11 @@ Final runner state: 94/94 ok.
 
 ## Caveat: non-comparability
 
-bench-v1-K5 and bench-v1-K5-filtered numbers are NOT comparable (thesis table `tab:improvement`). The old pre-leakage Fmax used bench-v1-K5 (52 features, unfiltered, leakage-present) evaluated with prop=tpr_pred. The new leakage-fixed Fmax uses bench-v1-K5-filtered (30 features lean, v6+anc2vec-leakfree, filtered to remove leakage) with prop=tpr_pred. The paired CI below compares the SAME cell config, leakage-fixed vs not, on bench-v1-K5-filtered. The large positive deltas reflect removal of inflated pre-leakage scores and are expected.
+bench-v1-K5 and bench-v1-K5-filtered numbers are NOT comparable (thesis table `tab:improvement`). The old pre-leakage Fmax used bench-v1-K5 (52 features, unfiltered, leakage-present) evaluated with prop=tpr_pred. The new leakage-fixed Fmax uses bench-v1-K5-filtered (30 features lean, the 6-feature-family bundle plus leakage-free anc2vec, filtered to remove leakage) with prop=tpr_pred. The paired CI below compares the SAME cell config, leakage-fixed vs not, on bench-v1-K5-filtered. The large positive deltas reflect removal of inflated pre-leakage scores and are expected.
 
 ## Replication cells (27 runs: 9 cells x 3 seeds)
 
-All cells: bench-v1-K5-filtered, v6+anc2vec-leakfree features (30 features lean), lambdarank, L=63, lr=0.05.
+All cells: bench-v1-K5-filtered, the 6-feature-family bundle plus leakage-free anc2vec (30 features lean), lambdarank, L=63, lr=0.05.
 Paired CI: leakage-fixed (new) vs pre-leakage (old, bench-v1-K5). NOT comparable eval sets.
 
 | cell | seed | new Fmax | prior Fmax (bench-v1-K5, NOT comparable) |
