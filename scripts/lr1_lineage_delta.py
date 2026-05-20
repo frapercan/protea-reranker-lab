@@ -3,14 +3,14 @@
 
 Writes ``runs/lr1/lineage_delta.csv`` and prints the table to stdout. The
 delta is reranker-with-lineage minus baseline-no-lineage on the
-``bench-v1-K5-v226-lineage`` dataset (eval v226-v230), reported per cell
+``bench-v1-K5-v226-lineage-prostt5`` dataset (eval v226-v230), reported per cell
 (NK/LK/PK x BPO/MFO/CCO).
 
 Sources:
 
 - Reranker arm: ``runs/study_v23/<cell>/run.json``. study_v23 is the
   v22-architectural booster (lambdarank, lineage features kept, anc2vec
-  and emb_pca families dropped) trained on bench-v1-K5-v226-lineage at
+  and emb_pca families dropped) trained on bench-v1-K5-v226-lineage-prostt5 at
   seed 42, num_boost_round=10000, early_stopping_rounds=100. It is the
   same configuration that the lab uploaded to PROTEA as the nine
   ``v226full_lineage_<cell>`` ``RerankerModel`` rows (dataset_id

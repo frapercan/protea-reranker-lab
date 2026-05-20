@@ -158,7 +158,7 @@ def test_separate_triples_track_independently(
         run_id="20260102T000000_pk_cco_v1",
         samples=_normal_samples(0.70, 0.02, seed=21),
         cell="pk-cco",
-        eval_set="bench-v1-K5-v226-lineage",
+        eval_set="bench-v1-K5-v226-lineage-prostt5",
     )
     winners, _, _ = uc.run(
         runs_dir=runs,
@@ -171,7 +171,7 @@ def test_separate_triples_track_independently(
         eval_set="bench-v1-K5-filtered", tier="nk", aspect="bpo"
     )
     pk_cco = uc.TriplKey(
-        eval_set="bench-v1-K5-v226-lineage",
+        eval_set="bench-v1-K5-v226-lineage-prostt5",
         tier="pk",
         aspect="cco",
     )

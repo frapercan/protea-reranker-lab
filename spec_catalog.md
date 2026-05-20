@@ -42,14 +42,14 @@ Feature-set legend:
 | [bench-v1-K5-nk-bpo](#bench-v1-K5-nk-bpo) | esmc_300m/K5/LR/full/bench-v1-K5 | nk-bpo | 0.465 (lab) | drop (superseded by v226 lineage) | pre-PR |
 | [smoke-v226-lineage-mini](#smoke-v226-lineage-mini) | esmc_300m/K5/LR/lean+lin/bench-v1-K5-v226-lineage-mini | pk-mfo | 0.137 (lab, short budget) | smoke (lineage pipeline smoke test) | historical |
 | [study-v22-mini](#study-v22-mini) | esmc_300m/K5/LR/lean+lin/bench-v1-K5-v226-lineage-mini | 9 cells | NK+LK avg 0.673 cafaeval | iterate (mini budget, v226-mini dataset) | historical |
-| [study-v22](#study-v22) | esmc_300m/K5/LR/lean+lin/bench-v1-K5-v226-lineage | 6 cells NK+LK | **0.6215 +- 0.0014** | **ship** (LB.2 publishable; LAFA v22 champion) | PR #18 (LR.1) |
-| [study-v23](#study-v23) | esmc_300m/K5/LR/lean+lin/bench-v1-K5-v226-lineage | 9 cells | NK+LK avg ~0.693; PK catastrophic | drop in PK, partial ship in NK+LK | SUMMARY_v23-v26.md |
-| [study-v24-no-lineage](#study-v24-no-lineage) | esmc_300m/K5/LR/lean/bench-v1-K5-v226-lineage | 9 cells | NK+LK avg ~0.693; PK partial recovery | iterate (best PK-MFO) | SUMMARY_v23-v26.md |
-| [study-v25-all-features](#study-v25-all-features) | esmc_300m/K5/LR/lean+lin+emb/bench-v1-K5-v226-lineage | 9 cells | NK+LK avg ~0.672; PK best on bpo/cco | iterate (best PK-BPO, PK-CCO) | SUMMARY_v23-v26.md |
-| [study-v26-binary](#study-v26-binary) | esmc_300m/K5/BIN/lean+lin+emb/bench-v1-K5-v226-lineage | 9 cells | NK+LK avg ~0.745 (best); PK broken | **ship** (NK+LK cells, binary objective champion) | PR #19 (LB.3), PR #20 (LM.3) |
-| [study-v27-binary-multiseed](#study-v27-binary-multiseed) | esmc_300m/K5/BIN/lean+lin+emb/bench-v1-K5-v226-lineage | 6 cells NK+LK, 3 seeds | NK+LK avg **0.7378 +- 0.0028** (5/6 sig95 vs v22) | **ship** (publishable CIs for Ch.6; binary champion replicated) | this PR |
+| [study-v22](#study-v22) | esmc_300m/K5/LR/lean+lin/bench-v1-K5-v226-lineage-prostt5 | 6 cells NK+LK | **0.6215 +- 0.0014** | **ship** (LB.2 publishable; LAFA v22 champion) | PR #18 (LR.1) |
+| [study-v23](#study-v23) | esmc_300m/K5/LR/lean+lin/bench-v1-K5-v226-lineage-prostt5 | 9 cells | NK+LK avg ~0.693; PK catastrophic | drop in PK, partial ship in NK+LK | SUMMARY_v23-v26.md |
+| [study-v24-no-lineage](#study-v24-no-lineage) | esmc_300m/K5/LR/lean/bench-v1-K5-v226-lineage-prostt5 | 9 cells | NK+LK avg ~0.693; PK partial recovery | iterate (best PK-MFO) | SUMMARY_v23-v26.md |
+| [study-v25-all-features](#study-v25-all-features) | esmc_300m/K5/LR/lean+lin+emb/bench-v1-K5-v226-lineage-prostt5 | 9 cells | NK+LK avg ~0.672; PK best on bpo/cco | iterate (best PK-BPO, PK-CCO) | SUMMARY_v23-v26.md |
+| [study-v26-binary](#study-v26-binary) | esmc_300m/K5/BIN/lean+lin+emb/bench-v1-K5-v226-lineage-prostt5 | 9 cells | NK+LK avg ~0.745 (best); PK broken | **ship** (NK+LK cells, binary objective champion) | PR #19 (LB.3), PR #20 (LM.3) |
+| [study-v27-binary-multiseed](#study-v27-binary-multiseed) | esmc_300m/K5/BIN/lean+lin+emb/bench-v1-K5-v226-lineage-prostt5 | 6 cells NK+LK, 3 seeds | NK+LK avg **0.7378 +- 0.0028** (5/6 sig95 vs v22) | **ship** (publishable CIs for Ch.6; binary champion replicated) | this PR |
 | [lr4-v18-selective](#lr4-v18-selective) | esmc_300m/K5/LR/lean+lin/bench-v1-K5-filtered | 3 cells | recomputed leakage-free | drop (historical policy, superseded by v22) | PR #21 (LR.4) |
-| [study-selective-rerank-K10-v226](#study-selective-rerank-K10-v226) | esmc_300m/K5/LR/lean+lin/bench-v1-K5-v226-lineage | 6 NK+LK + 3 PK baseline | **0.6215 +- 0.0014** (9-cell selective avg) | **ship** (FARM-EXP.10 recomputed champion; supersedes legacy 0.4562) | PRs #15, #18, #21 (FARM-EXP.10+LR.1+LR.4) |
+| [study-selective-rerank-K10-v226](#study-selective-rerank-K10-v226) | esmc_300m/K5/LR/lean+lin/bench-v1-K5-v226-lineage-prostt5 | 6 NK+LK + 3 PK baseline | **0.6215 +- 0.0014** (9-cell selective avg) | **ship** (FARM-EXP.10 recomputed champion; supersedes legacy 0.4562) | PRs #15, #18, #21 (FARM-EXP.10+LR.1+LR.4) |
 | [study-farm-exp-9b-94cell](#study-farm-exp-9b-94cell) | esmc_300m/K5/LR/lean/bench-v1-K5-filtered | 9 cells x 3 seeds + 39 ablations + 27 hparam + 1 standalone = 94 cells | NK avg 0.6654, LK avg 0.6590, PK avg 0.2320 (bench-v1-K5-filtered, NOT comparable to v226) | iterate (leakage-fixed transversal rerun; ablation + hparam audit) | FARM-EXP.9b (this PR) |
 
 ## Detailed entries
@@ -112,7 +112,7 @@ Feature-set legend:
   avg cafaeval Fmax = 0.543
 - **Ablation finding:** anc2vec_query dominates (delta 0.14 avg); alignment, go_context, knn are secondary; taxonomy near-zero.
 - **Hparam finding:** nk-bpo robust (grid range 0.44-0.47; delta 0.028, below 0.03 threshold).
-- **Outcome:** drop. bench-v1-K5 eval set includes proteins from training positives (leakage). Numbers inflated vs FARM-EXP.9 leakage-free re-run. Dataset superseded by bench-v1-K5-filtered and bench-v1-K5-v226-lineage.
+- **Outcome:** drop. bench-v1-K5 eval set includes proteins from training positives (leakage). Numbers inflated vs FARM-EXP.9 leakage-free re-run. Dataset superseded by bench-v1-K5-filtered and bench-v1-K5-v226-lineage-prostt5.
 - **Artifacts:** `runs/study_v9/` (replication/, ablation/, bootstrap/, hparam/, SUMMARY.md)
 
 ### study-v10
@@ -234,7 +234,7 @@ Feature-set legend:
 
   NK+LK avg (6 cells): ~0.674 (lab Fmax; no cafaeval run on this dataset).
 - **Notes:** These are lab Fmax values (no cafaeval propagation), measured against the bench-v1-K5-filtered hold-out. Dataset eval range differs from the v226 lineage eval (v226-v230). Numbers not directly comparable to v22+ cafaeval Fmax.
-- **Outcome:** drop. Superseded by bench-v1-K5-v226-lineage dataset (larger train coverage, lineage features). Results documented in FARM-EXP.9 (PR #24).
+- **Outcome:** drop. Superseded by bench-v1-K5-v226-lineage-prostt5 dataset (larger train coverage, lineage features). Results documented in FARM-EXP.9 (PR #24).
 - **Artifacts:** `runs/leakage_fix/grid/`
 
 ### no-emb-prostt5-k5
@@ -318,12 +318,12 @@ Feature-set legend:
 
 ### study-v22
 
-**Tuple:** esmc_300m / K5 / LR / lean+lin / bench-v1-K5-v226-lineage
+**Tuple:** esmc_300m / K5 / LR / lean+lin / bench-v1-K5-v226-lineage-prostt5
 
 This is the canonical LAFA v22 lineage reranker, also called the "LB.2 leakage-fixed champion".
 
 - **Spec files:** `experiments/_generated/study_v22/` (6 cells NK+LK, 3 seeds each = 18 runs)
-- **Dataset:** bench-v1-K5-v226-lineage (train v210-v226, eval v226-v230; 24.4M train rows; KNN PredictionSet sha 729de2c1, EvaluationSet sha 3b6f8064)
+- **Dataset:** bench-v1-K5-v226-lineage-prostt5 (train v210-v226, eval v226-v230; 24.4M train rows; KNN PredictionSet sha 729de2c1, EvaluationSet sha 3b6f8064)
 - **Features:** lean+lin (anc2vec dropped, emb_pca dropped, lineage included: lineage_is_ancestor_of_known, lineage_is_descendant_of_known, lineage_ancestor_of_count, lineage_descendant_of_count)
 - **Cells:** nk-bpo, nk-cco, nk-mfo, lk-bpo, lk-cco, lk-mfo (PK excluded: lineage shortcut catastrophic in PK)
 - **Budget:** num_boost_round=10000, lr=0.05, num_leaves=63, min_data_in_leaf=100, early_stop=100 (publication budget)
@@ -349,10 +349,10 @@ This is the canonical LAFA v22 lineage reranker, also called the "LB.2 leakage-f
 
 ### study-v23
 
-**Tuple:** esmc_300m / K5 / LR / lean+lin / bench-v1-K5-v226-lineage
+**Tuple:** esmc_300m / K5 / LR / lean+lin / bench-v1-K5-v226-lineage-prostt5
 
 - **Spec files:** `experiments/_generated/study_v23/` (9 cells, seed=42)
-- **Dataset:** bench-v1-K5-v226-lineage (same as v22)
+- **Dataset:** bench-v1-K5-v226-lineage-prostt5 (same as v22)
 - **Features:** lean+lin (same as v22; also labelled "official study_v22 budget" in SUMMARY_v23-v26.md)
 - **Cells:** 9 cells, seed=42
 - **Budget:** publication budget (same as v22)
@@ -375,10 +375,10 @@ This is the canonical LAFA v22 lineage reranker, also called the "LB.2 leakage-f
 
 ### study-v24-no-lineage
 
-**Tuple:** esmc_300m / K5 / LR / lean / bench-v1-K5-v226-lineage
+**Tuple:** esmc_300m / K5 / LR / lean / bench-v1-K5-v226-lineage-prostt5
 
 - **Spec files:** `experiments/_generated/study_v24_no_lineage/` (9 cells, seed=42)
-- **Dataset:** bench-v1-K5-v226-lineage
+- **Dataset:** bench-v1-K5-v226-lineage-prostt5
 - **Features:** lean (lean+lin minus all 4 lineage columns = same as v21-lean)
 - **Cells:** 9 cells, seed=42
 - **Budget:** publication budget
@@ -401,10 +401,10 @@ This is the canonical LAFA v22 lineage reranker, also called the "LB.2 leakage-f
 
 ### study-v25-all-features
 
-**Tuple:** esmc_300m / K5 / LR / lean+lin+emb / bench-v1-K5-v226-lineage
+**Tuple:** esmc_300m / K5 / LR / lean+lin+emb / bench-v1-K5-v226-lineage-prostt5
 
 - **Spec files:** `experiments/_generated/study_v25_all_features/` (9 cells, seed=42)
-- **Dataset:** bench-v1-K5-v226-lineage
+- **Dataset:** bench-v1-K5-v226-lineage-prostt5
 - **Features:** lean+lin+emb (all 56 features: lineage, anc2vec, and emb_pca all included; no drops)
 - **Cells:** 9 cells, seed=42
 - **Budget:** publication budget
@@ -427,10 +427,10 @@ This is the canonical LAFA v22 lineage reranker, also called the "LB.2 leakage-f
 
 ### study-v26-binary
 
-**Tuple:** esmc_300m / K5 / BIN / lean+lin+emb / bench-v1-K5-v226-lineage
+**Tuple:** esmc_300m / K5 / BIN / lean+lin+emb / bench-v1-K5-v226-lineage-prostt5
 
 - **Spec files:** `experiments/_generated/study_v26_binary/` (9 cells, seed=42)
-- **Dataset:** bench-v1-K5-v226-lineage
+- **Dataset:** bench-v1-K5-v226-lineage-prostt5
 - **Features:** lean+lin+emb (all 56 features; no drops)
 - **Cells:** 9 cells, seed=42
 - **Budget:** num_boost_round=10000, lr=0.05, num_leaves=63, min_data_in_leaf=100, early_stop=100; neg_pos_ratio=10 (binary objective subsamples negatives: train pk-bpo shrinks from 13.6M to 3.3M rows)
@@ -458,10 +458,10 @@ This is the canonical LAFA v22 lineage reranker, also called the "LB.2 leakage-f
 
 ### study-v27-binary-multiseed
 
-**Tuple:** esmc_300m / K5 / BIN / lean+lin+emb / bench-v1-K5-v226-lineage
+**Tuple:** esmc_300m / K5 / BIN / lean+lin+emb / bench-v1-K5-v226-lineage-prostt5
 
 - **Spec files:** `v27_binary_multiseed_sweep.py` (generates specs inline), seeds 42, 137, 244
-- **Dataset:** bench-v1-K5-v226-lineage
+- **Dataset:** bench-v1-K5-v226-lineage-prostt5
 - **Features:** lean+lin+emb (all 56 features; no drops), identical to v26-binary
 - **Cells:** 6 cells NK+LK (nk-mfo, nk-bpo, nk-cco, lk-mfo, lk-bpo, lk-cco), 3 seeds
 - **Budget:** num_boost_round=10000, lr=0.05, num_leaves=63, min_data_in_leaf=100, early_stop=100; neg_pos_ratio=10
@@ -507,10 +507,10 @@ This is the canonical LAFA v22 lineage reranker, also called the "LB.2 leakage-f
 
 ### study-selective-rerank-K10-v226
 
-**Tuple:** esmc_300m / K5 / LR / lean+lin / bench-v1-K5-v226-lineage
+**Tuple:** esmc_300m / K5 / LR / lean+lin / bench-v1-K5-v226-lineage-prostt5
 
 **Note on K:** The original historical "selective rerank at K=10" (PROTEA v18
-deployment) used 10 nearest neighbors. No `bench-v1-K10-v226-lineage` dataset
+deployment) used 10 nearest neighbors. No `bench-v1-K10-v226-lineage-prostt5` dataset
 exists in the lab. Per ADR-D34 (PROTEA, Status: Accepted, 2026-05-17) the
 FARM-EXP.10 slice accepted the K=5 LB.2 multi-seed sweep as the recomputed
 champion; the current lab design uses K=5 as the default. The "K10" in the
@@ -519,7 +519,7 @@ a K=10 nearest-neighbor run.
 
 - **Spec files:** `experiments/farm_exp_10/` (closure summary; see
   `experiments/farm_exp_10/multiseed_summary.md`)
-- **Dataset:** bench-v1-K5-v226-lineage (13 train pairs v160-v226, eval v226-v230,
+- **Dataset:** bench-v1-K5-v226-lineage-prostt5 (13 train pairs v160-v226, eval v226-v230,
   24.4M train rows, 1.07M eval rows)
 - **Features:** lean+lin (knn + alignment + length + taxonomy + go_context + lineage;
   anc2vec and emb_pca dropped to remove historical leakage source)
@@ -546,7 +546,7 @@ a K=10 nearest-neighbor run.
   NK+LK reranker avg: 0.6845.
   All 6 NK+LK lifts are strictly positive across all seeds (max CI half-width 0.0091).
 
-- **Outcome:** ship. FARM-EXP.10 recomputed champion on bench-v1-K5-v226-lineage.
+- **Outcome:** ship. FARM-EXP.10 recomputed champion on bench-v1-K5-v226-lineage-prostt5.
   Supersedes legacy 0.4562 (memory-only, leakage-contaminated, range unknown).
   Selective-deploy policy (NK+LK reranked, PK baseline fallback) is confirmed
   across all 3 seeds and all 6 NK+LK cells. Legacy 0.4562 is documented in
@@ -559,13 +559,13 @@ a K=10 nearest-neighbor run.
 - **ADR:** PROTEA `docs/source/adr/D34-selective-rerank-resurrection.rst`
   (Status: Accepted; Decision points 1-7 ratify the recompute policy and
   the 0.6215 champion as superseding the legacy 0.4562)
-- **eval_set_name:** bench-v1-K5-v226-lineage
+- **eval_set_name:** bench-v1-K5-v226-lineage-prostt5
 
 ## Baseline reference
 
 All cafaeval Fmax lifts above are relative to the raw KNN baseline
 (`neighbor_vote_fraction` top-K aggregation without any learned reranking).
-Baseline cafaeval Fmax on bench-v1-K5-v226-lineage eval set:
+Baseline cafaeval Fmax on bench-v1-K5-v226-lineage-prostt5 eval set:
 
 | cell | baseline cafaeval Fmax |
 |-|-|
@@ -583,14 +583,14 @@ Baseline cafaeval Fmax on bench-v1-K5-v226-lineage eval set:
 
 | tier | spec | cafaeval Fmax | eval set |
 |-|-|-|-|
-| NK+LK selective (v22 lineage, 3-seed) | study-v22 | **0.6215 +- 0.0014** | bench-v1-K5-v226-lineage |
-| NK+LK binary (v27, 3-seed, publishable) | study-v27-binary-multiseed | **0.7291 +- 0.0028** (6-cell avg) | bench-v1-K5-v226-lineage |
-| PK | KNN baseline (no reranker) | 0.403/0.601/0.483 | bench-v1-K5-v226-lineage |
+| NK+LK selective (v22 lineage, 3-seed) | study-v22 | **0.6215 +- 0.0014** | bench-v1-K5-v226-lineage-prostt5 |
+| NK+LK binary (v27, 3-seed, publishable) | study-v27-binary-multiseed | **0.7291 +- 0.0028** (6-cell avg) | bench-v1-K5-v226-lineage-prostt5 |
+| PK | KNN baseline (no reranker) | 0.403/0.601/0.483 | bench-v1-K5-v226-lineage-prostt5 |
 
 The v22 3-seed figure (0.6215) is the LB.2 lambdarank publishable claim.
 The v27-binary-multiseed figure (0.7291 +- 0.0028) is the LB.2-equivalent publishable
 claim for the binary objective: 5/6 NK+LK cells strictly dominate v22 at 95% confidence.
-Both are on bench-v1-K5-v226-lineage (eval window v226-v230).
+Both are on bench-v1-K5-v226-lineage-prostt5 (eval window v226-v230).
 
 ### study-farm-exp-9b-94cell
 
@@ -617,7 +617,7 @@ Both are on bench-v1-K5-v226-lineage (eval window v226-v230).
 
 - **Ablation findings:** knn family is most critical in all three ablation cells (lk-cco delta=-0.0269, nk-bpo delta=-0.0032, pk-mfo delta=-0.0388). anc2vec and emb_pca families are neutral (delta near zero), confirming the leakage-fix feature drop is safe.
 - **Hparam finding:** L=31, lr=0.1 marginally outperforms default (L=63, lr=0.05) by +0.0056 Fmax on nk-bpo. neg_pos_ratio has no measurable effect. Default hparams are near-optimal.
-- **Outcome:** iterate. Results are on bench-v1-K5-filtered; NOT comparable to bench-v1-K5-v226-lineage numbers. Champion table unchanged (FARM-EXP.5 writer slice required for FARM-EXP.4 auto-promoter).
+- **Outcome:** iterate. Results are on bench-v1-K5-filtered; NOT comparable to bench-v1-K5-v226-lineage-prostt5 numbers. Champion table unchanged (FARM-EXP.5 writer slice required for FARM-EXP.4 auto-promoter).
 - **Harvest summary:** `experiments/farm_exp_9b/summary.md`
 - **Merged-in:** FARM-EXP.9b (this PR, 2026-05-18)
 

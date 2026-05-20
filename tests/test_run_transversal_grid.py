@@ -39,7 +39,7 @@ def fake_catalog(tmp_path: Path) -> Path:
             "k": 5,
             "reranker": "lgbm.per_cell_9",
             "features": "v6+lineage-leakfree",
-            "eval_set": "bench-v1-K5-v226-lineage",
+            "eval_set": "bench-v1-K5-v226-lineage-esmc_300m",
             "propagation": "tpr_pred",
             "ensemble": "none",
         },
@@ -189,7 +189,7 @@ def test_filter_by_eval_set(fake_catalog: Path) -> None:
     kept = rtg._filter_stanzas(
         stanzas,
         plms=None, features=None,
-        eval_sets=("bench-v1-K5-v226-lineage",),
+        eval_sets=("bench-v1-K5-v226-lineage-esmc_300m",),
         rerankers=None, shortids=None,
     )
     assert [s["shortid"] for s in kept] == ["aaaaaaaaaaaa"]
@@ -313,7 +313,7 @@ def test_upfront_run_json_carries_axis_and_shortid(
     assert payload["aspect"] == "bpo"
     assert payload["seed"] == 42
     assert payload["axis"]["plm"] == "esmc_300m"
-    assert payload["axis"]["eval_set"] == "bench-v1-K5-v226-lineage"
+    assert payload["axis"]["eval_set"] == "bench-v1-K5-v226-lineage-esmc_300m"
     assert "git_sha" in payload
     assert payload["resolved_hparams"]["model"]["learning_rate"] == 0.05
     assert payload["artefact_paths"]["model"].endswith("model.txt")

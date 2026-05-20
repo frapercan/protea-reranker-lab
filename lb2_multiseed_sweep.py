@@ -1,7 +1,7 @@
 """LB.2 multi-seed sweep: 6 cells x 3 seeds = 18 runs.
 
 Replicates v23 config (no anc2vec, no pca) across seeds 42, 7, 137
-for all NK+LK cells on bench-v1-K5-v226-lineage.
+for all NK+LK cells on bench-v1-K5-v226-lineage-prostt5.
 
 Writes:
   - runs/lb2_multiseed/<cell>_seed<n>/run.json (training artefact)
@@ -27,7 +27,7 @@ import pyarrow.parquet as pq
 # ─── Paths ──────────────────────────────────────────────────────────────────
 WORKTREE = Path(__file__).resolve().parent
 REPO_DATASETS = Path("/home/frapercan/Thesis2/repositories/protea-reranker-lab/datasets")
-DATASET_DIR = REPO_DATASETS / "bench-v1-K5-v226-lineage"
+DATASET_DIR = REPO_DATASETS / "bench-v1-K5-v226-lineage-prostt5"
 OBO_PATH = REPO_DATASETS / "bench-v1-K5" / "go.obo"
 RUNS_ROOT = WORKTREE / "runs" / "lb2_multiseed"
 

@@ -2,7 +2,7 @@ schema_version: v1
 name: farm_exp_8_leakfree_v226_nk-cco_seed42
 description: FARM-EXP.8 leakfree grid, v6+lineage-leakfree bundle, v226-lineage eval, nk-cco, seed=42
 dataset:
-  manifest: datasets/bench-v1-K5-v226-lineage/manifest.json
+  manifest: datasets/bench-v1-K5-v226-lineage-prostt5/manifest.json
 model:
   kind: lgbm_reranker
   defaults:
@@ -47,7 +47,7 @@ output_dir: runs/farm_exp_8/v226_lineage/nk-cco_seed42
 tags:
 - farm_exp_8
 - v6+lineage-leakfree
-- bench-v1-K5-v226-lineage
+- bench-v1-K5-v226-lineage-prostt5
 - nk-cco
 - seed42
 keep_staging: false

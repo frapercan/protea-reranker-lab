@@ -10,23 +10,23 @@ cafaeval Fmax 0.4562, memory-only, validation range unknown,
 leakage-contaminated). Per ADR-D34 (PROTEA, Status: Accepted,
 2026-05-17) and the `feedback_no_archaeology_recompute` policy, the
 resolution is recompute on the current leakage-fixed bench
-(`bench-v1-K5-v226-lineage`) rather than reverse-engineering the
+(`bench-v1-K5-v226-lineage-prostt5`) rather than reverse-engineering the
 legacy K=10 axis tuple.
 
-No K=10 dataset (`bench-v1-K10-v226-lineage`) exists in the lab. The
+No K=10 dataset (`bench-v1-K10-v226-lineage-prostt5`) exists in the lab. The
 decision (ADR-D34, Decision point 7) accepted the K=5 LB.2 multi-seed
 sweep as the FARM-EXP.10 closure: the current selective-deploy policy
 (NK+LK reranked at K=5, PK baseline fallback) is the leakage-free
 realisation of the historical selective rerank intent on the current
 bench. Axis tuple: `plm=esmc_300m, k=5, rr=lgbm.per_cell_9.lambdarank,
 feat=lean+lin (knn+alignment+taxonomy+go_context+lineage, no anc2vec/emb_pca),
-eval=bench-v1-K5-v226-lineage, prop=tpr_pred, ens=none`.
+eval=bench-v1-K5-v226-lineage-prostt5, prop=tpr_pred, ens=none`.
 
 ## Per-cell cafaeval Fmax (LB.2 multi-seed, seeds 42 / 7 / 137)
 
 Study: LB.2 multi-seed sweep (lambdarank, lean+lin,
-bench-v1-K5-v226-lineage, 3 seeds; see spec_catalog.md `study-lb2-lambdarank`).
-Eval set: bench-v1-K5-v226-lineage (eval window v226-v230).
+bench-v1-K5-v226-lineage-prostt5, 3 seeds; see spec_catalog.md `study-lb2-lambdarank`).
+Eval set: bench-v1-K5-v226-lineage-prostt5 (eval window v226-v230).
 Cafaeval: prop=fill, norm=cafa, no_orphans=True, max_terms=500.
 
 | cell | seed=42 | seed=7 | seed=137 | mean | CI half | baseline | delta |
@@ -84,7 +84,7 @@ lk-mfo is the exception (delta +0.0014, CI spans zero).
 
 **ship** (recomputed champion on current bench, publishable). The
 LB.2 multi-seed sweep (6 NK+LK cells, seeds 42/7/137) on
-`bench-v1-K5-v226-lineage` is the live FARM-EXP.10 champion.
+`bench-v1-K5-v226-lineage-prostt5` is the live FARM-EXP.10 champion.
 The selective-deploy policy (NK+LK reranked, PK baseline fallback)
 is confirmed by all 6 NK+LK cells showing strictly positive lift
 across all seeds (max CI half-width 0.0091 on lk-cco).

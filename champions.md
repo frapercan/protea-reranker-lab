@@ -19,7 +19,7 @@ Sources:
 Champion configuration: study_v23 leakage-fixed bundle (rr=v226full_lineage,
 esmc_300m, K=5, lgbm.per_cell_9, 34 features, anc2vec and PCA families
 dropped to remove historical leakage). Three seeds (42, 7, 137). Evaluated
-on `bench-v1-K5-v226-lineage`, eval window `v226-v230`, cafaeval with
+on `bench-v1-K5-v226-lineage-prostt5`, eval window `v226-v230`, cafaeval with
 prop=fill, norm=cafa, no_orphans=True, max_terms=500, th_step=0.001.
 
 Selective deploy policy: NK+LK cells (6) use the reranker; PK cells (3)
@@ -34,15 +34,15 @@ above zero. PK cells carry zero delta by construction (not a null result).
 
 | cell | champion_run_tag | selective_avg_cafaeval | champion_fmax_cafaeval | paired_ci_lower | paired_ci_upper | paired_ci_significant_95 | feature_set_summary | dataset | protea_reranker_model_id | eval_window | last_updated | source_pr |
 | - | - | - | - | - | - | - | - | - | - | - | - | - |
-| lk-bpo | rr=v226full_lineage (study_v23, leakage-fixed, seed=42) | 0.6215 | 0.6459 | 0.0577 | 0.0641 | 1 | 9 generalists: neighbor_vote_fraction, k_position, evidence_code, go_term_frequency, ref_annotation_density | bench-v1-K5-v226-lineage | 3e5fac6e-f761-473c-9547-041bf8b69c83 | v226-v230 | 2026-05-18 | https://github.com/frapercan/protea-reranker-lab/pull/21 |
-| lk-cco | rr=v226full_lineage (study_v23, leakage-fixed, seed=42) | 0.6215 | 0.7368 | 0.0199 | 0.0381 | 1 | 9 generalists: neighbor_vote_fraction, go_term_frequency, k_position, evidence_code, vote_count | bench-v1-K5-v226-lineage | 85ef4229-8134-4617-9771-86a584bb66f8 | v226-v230 | 2026-05-18 | https://github.com/frapercan/protea-reranker-lab/pull/21 |
-| lk-mfo | rr=v226full_lineage (study_v23, leakage-fixed, seed=42) | 0.6215 | 0.6807 | 0.0941 | 0.1061 | 1 | 9 generalists: neighbor_vote_fraction, evidence_code, go_term_frequency, vote_count, lineage_is_descendant_of_known | bench-v1-K5-v226-lineage | 5ebb089f-6d7e-4698-adbe-41811fb24744 | v226-v230 | 2026-05-18 | https://github.com/frapercan/protea-reranker-lab/pull/21 |
-| nk-bpo | rr=v226full_lineage (study_v23, leakage-fixed, seed=42) | 0.6215 | 0.5596 | 0.0238 | 0.0285 | 1 | 9 generalists: neighbor_vote_fraction, k_position, evidence_code, go_term_frequency, ref_annotation_density | bench-v1-K5-v226-lineage | dda7948c-551c-49d7-8ac9-87f665e0d79f | v226-v230 | 2026-05-18 | https://github.com/frapercan/protea-reranker-lab/pull/21 |
-| nk-cco | rr=v226full_lineage (study_v23, leakage-fixed, seed=42) | 0.6215 | 0.7774 | 0.0733 | 0.0830 | 1 | 9 generalists: neighbor_vote_fraction, go_term_frequency, k_position, evidence_code, vote_count | bench-v1-K5-v226-lineage | 825ed241-2a8a-4f40-b2c9-a9f8f9ec8dc7 | v226-v230 | 2026-05-18 | https://github.com/frapercan/protea-reranker-lab/pull/21 |
-| nk-mfo | rr=v226full_lineage (study_v23, leakage-fixed, seed=42) | 0.6215 | 0.7065 | 0.0594 | 0.0665 | 1 | 9 generalists: neighbor_vote_fraction, go_term_frequency, evidence_code, vote_count, k_position | bench-v1-K5-v226-lineage | 96e4d02d-d145-4592-8c9d-bf4e58895d01 | v226-v230 | 2026-05-18 | https://github.com/frapercan/protea-reranker-lab/pull/21 |
-| pk-bpo | rr=v226full_lineage (study_v23, leakage-fixed, seed=42) | 0.6215 | 0.4030 | 0.0000 | 0.0000 | 0 | lineage-dominant (top-2: go_term_frequency, lineage_descendant_of_count); 9 generalists + lineage for PK | bench-v1-K5-v226-lineage | 4b30b327-f220-4cf9-ba2b-ca6fe58f57ff | v226-v230 | 2026-05-18 | https://github.com/frapercan/protea-reranker-lab/pull/21 |
-| pk-cco | rr=v226full_lineage (study_v23, leakage-fixed, seed=42) | 0.6215 | 0.6010 | 0.0000 | 0.0000 | 0 | lineage-dominant (top-2: go_term_frequency, lineage_ancestor_of_count); 9 generalists + lineage for PK | bench-v1-K5-v226-lineage | 0158529f-45be-421a-b2d6-1fa869a4661d | v226-v230 | 2026-05-18 | https://github.com/frapercan/protea-reranker-lab/pull/21 |
-| pk-mfo | rr=v226full_lineage (study_v23, leakage-fixed, seed=42) | 0.6215 | 0.4830 | 0.0000 | 0.0000 | 0 | lineage-dominant (top-2: go_term_frequency, lineage_ancestor_of_count); 9 generalists + lineage for PK | bench-v1-K5-v226-lineage | 8a4b003f-4ad4-41cb-a3b4-910925a7f8cd | v226-v230 | 2026-05-18 | https://github.com/frapercan/protea-reranker-lab/pull/21 |
+| lk-bpo | rr=v226full_lineage (study_v23, leakage-fixed, seed=42) | 0.6215 | 0.6459 | 0.0577 | 0.0641 | 1 | 9 generalists: neighbor_vote_fraction, k_position, evidence_code, go_term_frequency, ref_annotation_density | bench-v1-K5-v226-lineage-prostt5 | 3e5fac6e-f761-473c-9547-041bf8b69c83 | v226-v230 | 2026-05-18 | https://github.com/frapercan/protea-reranker-lab/pull/21 |
+| lk-cco | rr=v226full_lineage (study_v23, leakage-fixed, seed=42) | 0.6215 | 0.7368 | 0.0199 | 0.0381 | 1 | 9 generalists: neighbor_vote_fraction, go_term_frequency, k_position, evidence_code, vote_count | bench-v1-K5-v226-lineage-prostt5 | 85ef4229-8134-4617-9771-86a584bb66f8 | v226-v230 | 2026-05-18 | https://github.com/frapercan/protea-reranker-lab/pull/21 |
+| lk-mfo | rr=v226full_lineage (study_v23, leakage-fixed, seed=42) | 0.6215 | 0.6807 | 0.0941 | 0.1061 | 1 | 9 generalists: neighbor_vote_fraction, evidence_code, go_term_frequency, vote_count, lineage_is_descendant_of_known | bench-v1-K5-v226-lineage-prostt5 | 5ebb089f-6d7e-4698-adbe-41811fb24744 | v226-v230 | 2026-05-18 | https://github.com/frapercan/protea-reranker-lab/pull/21 |
+| nk-bpo | rr=v226full_lineage (study_v23, leakage-fixed, seed=42) | 0.6215 | 0.5596 | 0.0238 | 0.0285 | 1 | 9 generalists: neighbor_vote_fraction, k_position, evidence_code, go_term_frequency, ref_annotation_density | bench-v1-K5-v226-lineage-prostt5 | dda7948c-551c-49d7-8ac9-87f665e0d79f | v226-v230 | 2026-05-18 | https://github.com/frapercan/protea-reranker-lab/pull/21 |
+| nk-cco | rr=v226full_lineage (study_v23, leakage-fixed, seed=42) | 0.6215 | 0.7774 | 0.0733 | 0.0830 | 1 | 9 generalists: neighbor_vote_fraction, go_term_frequency, k_position, evidence_code, vote_count | bench-v1-K5-v226-lineage-prostt5 | 825ed241-2a8a-4f40-b2c9-a9f8f9ec8dc7 | v226-v230 | 2026-05-18 | https://github.com/frapercan/protea-reranker-lab/pull/21 |
+| nk-mfo | rr=v226full_lineage (study_v23, leakage-fixed, seed=42) | 0.6215 | 0.7065 | 0.0594 | 0.0665 | 1 | 9 generalists: neighbor_vote_fraction, go_term_frequency, evidence_code, vote_count, k_position | bench-v1-K5-v226-lineage-prostt5 | 96e4d02d-d145-4592-8c9d-bf4e58895d01 | v226-v230 | 2026-05-18 | https://github.com/frapercan/protea-reranker-lab/pull/21 |
+| pk-bpo | rr=v226full_lineage (study_v23, leakage-fixed, seed=42) | 0.6215 | 0.4030 | 0.0000 | 0.0000 | 0 | lineage-dominant (top-2: go_term_frequency, lineage_descendant_of_count); 9 generalists + lineage for PK | bench-v1-K5-v226-lineage-prostt5 | 4b30b327-f220-4cf9-ba2b-ca6fe58f57ff | v226-v230 | 2026-05-18 | https://github.com/frapercan/protea-reranker-lab/pull/21 |
+| pk-cco | rr=v226full_lineage (study_v23, leakage-fixed, seed=42) | 0.6215 | 0.6010 | 0.0000 | 0.0000 | 0 | lineage-dominant (top-2: go_term_frequency, lineage_ancestor_of_count); 9 generalists + lineage for PK | bench-v1-K5-v226-lineage-prostt5 | 0158529f-45be-421a-b2d6-1fa869a4661d | v226-v230 | 2026-05-18 | https://github.com/frapercan/protea-reranker-lab/pull/21 |
+| pk-mfo | rr=v226full_lineage (study_v23, leakage-fixed, seed=42) | 0.6215 | 0.4830 | 0.0000 | 0.0000 | 0 | lineage-dominant (top-2: go_term_frequency, lineage_ancestor_of_count); 9 generalists + lineage for PK | bench-v1-K5-v226-lineage-prostt5 | 8a4b003f-4ad4-41cb-a3b4-910925a7f8cd | v226-v230 | 2026-05-18 | https://github.com/frapercan/protea-reranker-lab/pull/21 |
 
 <!-- MANUAL_ENTRIES_BEGIN -->
 ---
@@ -58,7 +58,7 @@ FARM-EXP.3 record format on disk so the auto-walker picks them up.
 Until then, this appendix is the source of truth for pre-FARM-EXP.3
 champion records.
 
-### eval_set: bench-v1-K5-v226-lineage
+### eval_set: bench-v1-K5-v226-lineage-prostt5
 
 LR.4 closure entry. Source: LB.2 multi-seed sweep (3 seeds: 42, 7,
 137) on the leakage-fixed bundle (canonical EXPERIMENTS.md axis value

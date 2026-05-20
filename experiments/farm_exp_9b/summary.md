@@ -171,4 +171,4 @@ The FARM-EXP.4 champion auto-promoter (`scripts/update_champions.py`) requires F
 
 **Champion table rows changed: 0** (auto-promoter requires FARM-EXP.5 writer slice to produce FARM-EXP.3 format).
 
-The existing `champions.md` LM.1 bootstrapped table (study_v23, bench-v1-K5-v226-lineage) remains the current champion record. FARM-EXP.9b results use bench-v1-K5-filtered and are not directly comparable.
+The existing `champions.md` LM.1 bootstrapped table (study_v23, bench-v1-K5-v226-lineage-prostt5) remains the current champion record. FARM-EXP.9b results use bench-v1-K5-filtered and are not directly comparable.

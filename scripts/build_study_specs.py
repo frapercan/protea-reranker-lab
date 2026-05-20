@@ -223,13 +223,59 @@ FEATURE_SWEEP: tuple[str, ...] = (
 #: name; the runner slice (FARM-EXP.5+) resolves the name to the actual
 #: family list / drop list when emitting run records.
 
+#: Eval-set "family" labels iterated by the cartesian product. The
+#: lineage family expands into one concrete dataset per PLM at cell
+#: emit time (FARM-EXP.12: PLM axis is explicit in dataset naming).
+#: The filtered family stays PLM-blind because its KNN PredictionSet
+#: was not re-built per PLM.
 EVAL_SWEEP: tuple[str, ...] = (
     "bench-v1-K5-filtered",
-    "bench-v1-K5-v226-lineage",
+    "lineage",
 )
+
+#: Map a catalog ``plm`` value to the canonical short key used in
+#: dataset names. The 8-PLM canonical list (ADR D35) uses ``prostt5``
+#: and ``prot_t5`` (no ``_xl`` suffix); the catalog kept the historical
+#: ``_xl`` form to avoid churning the ``plm`` axis value, so we map at
+#: serialisation time. ``esmc_300m`` is the chapter-6 baseline (orphan
+#: per ADR D35 but kept in the catalog for legacy comparisons).
+PLM_SHORT_KEYS: dict[str, str] = {
+    "esm2_150m": "esm2_150m",
+    "esm2_650m": "esm2_650m",
+    "esm2_3b": "esm2_3b",
+    "prot_t5_xl": "prot_t5",
+    "prostt5_xl": "prostt5",
+    "ankh_base": "ankh_base",
+    "ankh_large": "ankh_large",
+    "esmc_600m": "esmc_600m",
+    "esmc_300m": "esmc_300m",
+}
+
+#: Regex prefix that identifies any lineage-family eval set (per-PLM).
+LINEAGE_EVAL_PREFIX = "bench-v1-K"
 
 PROPAGATION_DEFAULT = "tpr_pred"
 ENSEMBLE_DEFAULT = "none"
+
+
+def _resolve_eval_set(family: str, plm: str, k: int) -> str:
+    """Resolve a family label into the concrete dataset name.
+
+    ``filtered`` stays PLM-blind (one dataset shared across PLMs).
+    ``lineage`` expands to ``bench-v1-K{k}-v226-lineage-{plm_short}``
+    so the PLM axis is explicit at dataset level.
+    """
+    if family == "lineage":
+        plm_short = PLM_SHORT_KEYS[plm]
+        return f"bench-v1-K{k}-v226-lineage-{plm_short}"
+    if family == "bench-v1-K5-filtered":
+        return family
+    raise ValueError(f"unknown eval-set family: {family!r}")
+
+
+def _is_lineage_eval(eval_set: str) -> bool:
+    """True iff ``eval_set`` is one of the per-PLM lineage datasets."""
+    return eval_set.startswith(LINEAGE_EVAL_PREFIX) and "-lineage-" in eval_set
 
 #: Allowed stanza status values, mirroring run lifecycle.
 CELL_STATUSES: tuple[str, ...] = ("planned", "running", "done", "superseded")
@@ -252,9 +298,11 @@ def _features_to_schema_sha(features: str) -> str:
 def _eval_set_manifest_sha(eval_set: str) -> str:
     """Resolve the eval-set manifest sha or fall back to a placeholder.
 
-    ``bench-v1-K5-v226-lineage`` may not be materialised yet (depends on
-    lab-runner LB.1); for catalog generation we accept the placeholder
-    and let FARM-EXP.3 backfill once the manifest lands.
+    Lineage-family datasets may not be materialised yet (the prostt5
+    one lives only in PROTEA's artifact store, and the other 7 PLM
+    siblings are scheduled by FARM-EXP.13); for catalog generation we
+    accept the placeholder and let FARM-EXP.3 backfill once the
+    manifest lands.
     """
     manifest = Path(__file__).resolve().parents[1] / "datasets" / eval_set / "manifest.json"
     if manifest.exists():
@@ -287,10 +335,9 @@ def _keep_cell(cell: dict[str, Any]) -> bool:
     R1: ``alignment_weighted`` only on (eval=bench-v1-K5-filtered,
         features=v6). Dominated by lgbm.* elsewhere.
     R2: drop (features=knn-only, reranker=lgbm.*). Degenerate.
-    R3: drop (eval=bench-v1-K5-v226-lineage) with features lacking
-        ``lineage``. The lineage dataset exists to test the lineage
-        feature family.
-    R4: drop (features contains ``geokg``) with eval != lineage.
+    R3: drop (eval=lineage-family) with features lacking ``lineage``.
+        The lineage dataset exists to test the lineage feature family.
+    R4: drop (features contains ``geokg``) with eval != lineage-family.
         geokg requires the lineage eval set per LR.2.
     R5: drop (reranker=none) with features != knn-only. The KNN-only
         baseline by definition runs on the knn-only feature bundle.
@@ -300,9 +347,9 @@ def _keep_cell(cell: dict[str, Any]) -> bool:
             return False
     if cell["features"] == "knn-only" and cell["reranker"].startswith("lgbm."):
         return False
-    if cell["eval_set"] == "bench-v1-K5-v226-lineage" and "lineage" not in cell["features"]:
+    if _is_lineage_eval(cell["eval_set"]) and "lineage" not in cell["features"]:
         return False
-    if "geokg" in cell["features"] and cell["eval_set"] != "bench-v1-K5-v226-lineage":
+    if "geokg" in cell["features"] and not _is_lineage_eval(cell["eval_set"]):
         return False
     if cell["reranker"] == "none" and cell["features"] != "knn-only":
         return False
@@ -316,9 +363,10 @@ def enumerate_cells() -> list[dict[str, Any]]:
     shortid helper. Stable under repeated calls (sorted output).
     """
     raw: list[dict[str, Any]] = []
-    for plm, k, rr, feat, eval_set in product(
+    for plm, k, rr, feat, family in product(
         PLM_SWEEP, K_SWEEP, RERANKER_SWEEP, FEATURE_SWEEP, EVAL_SWEEP
     ):
+        eval_set = _resolve_eval_set(family, plm, k)
         raw.append(
             {
                 "plm": plm,
@@ -364,12 +412,17 @@ CATALOG_HEADER = """\
 # protea_contracts.axis_tuple_shortid digest of the axis payload
 # (matches PROTEA's ExperimentRun.axis_tuple_shortid column).
 #
+# eval_set values follow the FARM-EXP.12 explicit-PLM naming convention:
+# the lineage family expands into one concrete dataset per PLM
+# (bench-v1-K{k}-v226-lineage-{plm_short}). The legacy
+# bench-v1-K5-filtered name stays as-is (PLM-blind, shared across PLMs).
+#
 # Pruning rules applied (see axis-map section "What the transversal
 # re-benchmark would cover"):
 #   R1: alignment_weighted only on (eval=bench-v1-K5-filtered, features=v6)
 #   R2: drop (features=knn-only, reranker=lgbm.*)
-#   R3: drop (eval=bench-v1-K5-v226-lineage) with features lacking lineage
-#   R4: drop (features contains geokg) with eval != lineage
+#   R3: drop (eval=lineage-family) with features lacking lineage
+#   R4: drop (features contains geokg) with eval != lineage-family
 #   R5: drop (reranker=none) with features != knn-only
 """
 
@@ -420,6 +473,7 @@ __all__ = [
     "EVAL_SWEEP",
     "FEATURE_SWEEP",
     "K_SWEEP",
+    "PLM_SHORT_KEYS",
     "PLM_SWEEP",
     "RERANKER_SWEEP",
     "build_transversal_catalog",

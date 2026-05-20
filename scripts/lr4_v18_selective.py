@@ -13,8 +13,8 @@ eval distribution as the LB.2 leakage-fixed champion so the chapter-6
 results table reports a fair delta. The legacy memory-only number was
 0.4562 selective avg cafaeval Fmax (pre-leakage-fix, validation range
 unknown; superseded per ``feedback_no_archaeology_recompute``). This
-script records the leakage-free recompute on bench-v1-K5-v226-lineage
-(``rr=lgbm.per_cell_9, feat=v6+lineage-leakfree, eval=bench-v1-K5-v226-lineage,
+script records the leakage-free recompute on bench-v1-K5-v226-lineage-prostt5
+(``rr=lgbm.per_cell_9, feat=v6+lineage-leakfree, eval=bench-v1-K5-v226-lineage-prostt5,
 prop=fill, ens=none``).
 
 Sources:
@@ -72,7 +72,7 @@ CELLS: tuple[str, ...] = tuple(
 )
 
 # Documented LB.2 multi-seed sweep results (3 seeds: 42, 7, 137) on
-# bench-v1-K5-v226-lineage with the leakage-fixed v23 bundle.
+# bench-v1-K5-v226-lineage-prostt5 with the leakage-fixed v23 bundle.
 # Source: EXPERIMENTS.md "LB.2 multi-seed sweep" section + memory
 # project_lb2_leakage_fixed_champion. Numbers are per-cell mean over
 # the three seeds with the 95% CI half-width from the 10000-iteration
@@ -94,7 +94,7 @@ LEAKFREE_RERANK_CI_HALF: dict[str, float] = {
     "lk-cco": 0.0091,
 }
 
-# KNN baseline cafaeval Fmax on bench-v1-K5-v226-lineage, from
+# KNN baseline cafaeval Fmax on bench-v1-K5-v226-lineage-prostt5, from
 # study_v23 results.csv (same dataset and eval pipeline).
 BASELINE_FMAX: dict[str, float] = {
     "nk-bpo": 0.5333,
