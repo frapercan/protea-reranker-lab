@@ -134,14 +134,14 @@ def test_no_pruned_combo_R2_knn_only_lgbm() -> None:
 
 def test_no_pruned_combo_R3_lineage_eval_needs_lineage_feat() -> None:
     for cell in CELLS:
-        if cell["eval_set"] == "bench-v1-K5-v226-lineage":
+        if bss._is_lineage_eval(cell["eval_set"]):
             assert "lineage" in cell["features"], cell
 
 
 def test_no_pruned_combo_R4_geokg_requires_lineage_eval() -> None:
     for cell in CELLS:
         if "geokg" in cell["features"]:
-            assert cell["eval_set"] == "bench-v1-K5-v226-lineage", cell
+            assert bss._is_lineage_eval(cell["eval_set"]), cell
 
 
 def test_no_pruned_combo_R5_none_uses_knn_only() -> None:
@@ -178,9 +178,22 @@ def test_feature_values_in_canonical_set() -> None:
 
 
 def test_eval_set_values_in_canonical_set() -> None:
-    allowed = set(bss.EVAL_SWEEP)
+    # FARM-EXP.12: the ``lineage`` family expands per-PLM, so the
+    # rendered ``eval_set`` is one of:
+    #   - ``bench-v1-K5-filtered`` (PLM-blind), or
+    #   - ``bench-v1-K{k}-v226-lineage-{plm_short}`` for one of the
+    #     nine canonical short keys.
+    family_filtered = {"bench-v1-K5-filtered"}
+    plm_shorts = set(bss.PLM_SHORT_KEYS.values())
     for cell in CELLS:
-        assert cell["eval_set"] in allowed, cell
+        eval_set = cell["eval_set"]
+        if eval_set in family_filtered:
+            continue
+        assert bss._is_lineage_eval(eval_set), cell
+        plm_short = eval_set.rsplit("-", 1)[-1]
+        assert plm_short in plm_shorts, cell
+        # And the suffix must match the cell's own PLM mapping.
+        assert plm_short == bss.PLM_SHORT_KEYS[cell["plm"]], cell
 
 
 def test_propagation_default() -> None:
@@ -208,12 +221,13 @@ def test_enumerate_cells_is_deterministic() -> None:
 def test_leakfree_axis_value_is_present() -> None:
     # FARM-EXP.10b adds ``v6+lineage-leakfree`` as a first-class catalog
     # axis value: the FARM-EXP.10 champion config (v6 + lineage minus
-    # anc2vec + pca). Pin that it survives pruning on at least the
-    # lineage eval set, so future runner slices can reference it.
+    # anc2vec + pca). Pin that it survives pruning on at least one
+    # PLM-tagged lineage eval set, so future runner slices can
+    # reference it.
     leakfree = [c for c in CELLS if c["features"] == "v6+lineage-leakfree"]
     assert leakfree, "v6+lineage-leakfree absent from catalog"
     assert any(
-        c["eval_set"] == "bench-v1-K5-v226-lineage" for c in leakfree
+        bss._is_lineage_eval(c["eval_set"]) for c in leakfree
     ), "v6+lineage-leakfree must be paired with the lineage eval set"
 
 

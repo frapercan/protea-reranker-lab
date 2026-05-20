@@ -1,0 +1,29 @@
+name: Dataset-name lint
+
+# Wires the FARM-EXP.12 dataset-name linter
+# (scripts/lint_dataset_names.py). Blocks PRs that introduce untagged
+# ``bench-v1-K{k}-v226-lineage`` references; the canonical form is
+# ``bench-v1-K{k}-v{val_band}-lineage-{plm_short}`` (see ADR D36 on the
+# PROTEA side).
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Run dataset-name linter
+        run: python scripts/lint_dataset_names.py

@@ -1,7 +1,7 @@
 """Tests for scripts/lr4_v18_selective.py.
 
 Covers the LR.4 closure: the leakage-free re-run of the selective-rerank
-policy on bench-v1-K5-v226-lineage. The committed CSV under
+policy on bench-v1-K5-v226-lineage-prostt5. The committed CSV under
 ``experiments/lr4/v18_selective_delta.csv`` is the acceptance artefact;
 the script regenerates it from ``runs/lb2_multiseed/cis.json`` when
 present, or from documented LB.2 multi-seed sweep numbers otherwise.

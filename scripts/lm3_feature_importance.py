@@ -38,7 +38,7 @@ Sources
 - Booster artefacts: ``runs/study_v23/<cell>/run.json`` (seed=42).
   These are the same nine boosters registered in PROTEA as
   v226full_lineage_<cell> (external_source=protea-reranker-lab@28d9ce0-
-  study_v23, dataset bench-v1-K5-v226-lineage,
+  study_v23, dataset bench-v1-K5-v226-lineage-prostt5,
   id 3517bc8b-4562-49e0-8c67-99afc5fdc67f).
 - The script tolerates missing run.json files (prints a warning) so it
   regenerates the summary even on a fresh worktree where artefacts are

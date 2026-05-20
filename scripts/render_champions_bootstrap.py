@@ -65,8 +65,8 @@ _SOURCE_PR = "https://github.com/frapercan/protea-reranker-lab/pull/21"
 # We avoid bare vN tokens: use the rr=<shortid> form per hard constraint.
 _CHAMPION_RUN_TAG = "rr=v226full_lineage (study_v23, leakage-fixed, seed=42)"
 
-# Canonical dataset name (bench-v1-K5-v226-lineage), eval window (v226-v230).
-_DATASET = "bench-v1-K5-v226-lineage"
+# Canonical dataset name (bench-v1-K5-v226-lineage-prostt5), eval window (v226-v230).
+_DATASET = "bench-v1-K5-v226-lineage-prostt5"
 _EVAL_WINDOW = "v226-v230"
 
 # Selective cafaeval Fmax (LB.2 multi-seed mean, 3 seeds x 6 NK+LK cells,
@@ -186,7 +186,7 @@ Sources:
 Champion configuration: study_v23 leakage-fixed bundle (rr=v226full_lineage,
 esmc_300m, K=5, lgbm.per_cell_9, 34 features, anc2vec and PCA families
 dropped to remove historical leakage). Three seeds (42, 7, 137). Evaluated
-on `bench-v1-K5-v226-lineage`, eval window `v226-v230`, cafaeval with
+on `bench-v1-K5-v226-lineage-prostt5`, eval window `v226-v230`, cafaeval with
 prop=fill, norm=cafa, no_orphans=True, max_terms=500, th_step=0.001.
 
 Selective deploy policy: NK+LK cells (6) use the reranker; PK cells (3)

@@ -5,7 +5,7 @@ Hparams: binary objective, lean+lin+emb (56 features), neg_pos_ratio=10,
   num_boost_round=10000, lr=0.05, num_leaves=63, min_data_in_leaf=100,
   early_stopping_rounds=100.
 Seeds: 42, 137, 244 (3-seed replication of v26-binary champion).
-Eval set: bench-v1-K5-v226-lineage (eval window v226-v230).
+Eval set: bench-v1-K5-v226-lineage-prostt5 (eval window v226-v230).
 Cafaeval: prop=fill, norm=cafa, no_orphans=True.
 
 ## Per-cell cafaeval Fmax: v27-binary (mean +- 95% CI half-width)

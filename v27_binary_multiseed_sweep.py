@@ -1,7 +1,7 @@
 """v27-binary-multiseed sweep: 6 NK+LK cells x 3 seeds = 18 runs.
 
 Replicates v26-binary config (binary objective, lean+lin+emb, neg_pos_ratio=10)
-across seeds 42, 137, 244 for all NK+LK cells on bench-v1-K5-v226-lineage.
+across seeds 42, 137, 244 for all NK+LK cells on bench-v1-K5-v226-lineage-prostt5.
 Seeds match the v27 target set; compare against v22 (LB.2) baseline for thesis Ch.6.
 
 Writes:
@@ -31,7 +31,7 @@ import yaml
 WORKTREE = Path(__file__).resolve().parent
 REPO_DIR = Path("/home/frapercan/Thesis2/repositories/protea-reranker-lab")
 REPO_DATASETS = REPO_DIR / "datasets"
-DATASET_DIR = REPO_DATASETS / "bench-v1-K5-v226-lineage"
+DATASET_DIR = REPO_DATASETS / "bench-v1-K5-v226-lineage-prostt5"
 OBO_PATH = REPO_DATASETS / "bench-v1-K5" / "go.obo"
 RUNS_ROOT = WORKTREE / "runs" / "v27_binary_multiseed"
 EXPERIMENTS_OUT = WORKTREE / "experiments" / "v27"
@@ -126,7 +126,7 @@ def _make_spec_yaml(cell: str, seed: int, out_dir: Path) -> Path:
         "sweep": {"backend": "none"},
         "output_dir": str(out_dir),
         "tags": [
-            "bench-v1-K5-v226-lineage",
+            "bench-v1-K5-v226-lineage-prostt5",
             cell,
             f"seed{seed}",
             "study_v27_binary_multiseed",
@@ -446,7 +446,7 @@ def write_summary_md(
         "  num_boost_round=10000, lr=0.05, num_leaves=63, min_data_in_leaf=100,",
         "  early_stopping_rounds=100.",
         "Seeds: 42, 137, 244 (3-seed replication of v26-binary champion).",
-        "Eval set: bench-v1-K5-v226-lineage (eval window v226-v230).",
+        "Eval set: bench-v1-K5-v226-lineage-prostt5 (eval window v226-v230).",
         "Cafaeval: prop=fill, norm=cafa, no_orphans=True.",
         "",
         "## Per-cell cafaeval Fmax: v27-binary (mean +- 95% CI half-width)",

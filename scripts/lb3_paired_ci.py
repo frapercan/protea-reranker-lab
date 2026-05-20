@@ -9,7 +9,7 @@ Data source (default):
   The script embeds the canonical LB.2 per-seed cafaeval Fmax values
   from EXPERIMENTS.md (committed 2026-05-17). These are the leakage-fixed
   champion (run--plm=esmc_300m--k=5--rr=lgbm.per_cell_9--feat=v6+lineage-leakfree--eval=bench-v1-K5-v226-lineage--prop=fill--ens=none, NK+LK reranker + PK baseline fallback) and the
-  KNN-only baseline, both on bench-v1-K5-v226-lineage (eval v226-v230).
+  KNN-only baseline, both on bench-v1-K5-v226-lineage-prostt5 (eval v226-v230).
 
   The raw prediction parquets are gitignored; the embedded summary table
   is the committed artefact that drives this script.  Pass --data-json
@@ -63,7 +63,7 @@ OUTPUT_CSV = OUTPUT_DIR / "per_cell_paired_ci.csv"
 # ---------------------------------------------------------------------------
 # Canonical LB.2 multi-seed cafaeval Fmax (seeds 42, 7, 137)
 # Source: EXPERIMENTS.md, LB.2 multi-seed sweep section (2026-05-17)
-# bench-v1-K5-v226-lineage, eval v226-v230
+# bench-v1-K5-v226-lineage-prostt5, eval v226-v230
 # Champion arm: leakage-fixed booster (run--feat=v6+lineage-leakfree, NK+LK cells reranked)
 # Baseline arm: KNN-only (vote_count, no reranker)
 # PK cells: champion == baseline (selective-deploy policy; reranker NOT used)

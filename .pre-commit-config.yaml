@@ -1,0 +1,19 @@
+# Pre-commit hooks for protea-reranker-lab.
+#
+# Currently runs only the FARM-EXP.12 dataset-name linter (rejects
+# untagged ``bench-v1-K{k}-v226-lineage`` references that omit the
+# ``-{plm_short}`` PLM suffix). The wider lint/test suite stays in
+# the GitHub Actions workflow (.github/workflows/quality.yml).
+#
+# Enable locally with:
+#   pip install pre-commit
+#   pre-commit install
+repos:
+  - repo: local
+    hooks:
+      - id: lint-dataset-names
+        name: Reject untagged bench-v1-K*-v226-lineage references
+        entry: python scripts/lint_dataset_names.py
+        language: system
+        pass_filenames: false
+        always_run: true
