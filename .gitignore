@@ -19,3 +19,4 @@ wandb/
 .pytest_cache/
 .ipynb_checkpoints/
 poetry.toml
+docs/build/
