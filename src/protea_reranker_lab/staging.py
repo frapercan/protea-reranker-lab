@@ -2,10 +2,9 @@
 
 The pipeline is:
 
-1. **Pass 0** — scan only ``protein_accession``, ``label``, ``snapshot_pair``
-   and the categorical columns. Build:
-     * union of unique values per categorical column → stable code maps;
-     * per-protein label/snapshot footprint → train/val routing.
+1. **Pass 0** scans only ``protein_accession``, ``label``, ``snapshot_pair``
+   and the categorical columns to build stable code maps per categorical
+   column and a per-protein label/snapshot footprint for train/val routing.
 
 2. **Pass 1** — re-scan with all required feature columns, encode
    categoricals, route each row to ``train`` or ``val`` (``eval`` is its own
