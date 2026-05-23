@@ -16,11 +16,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator
 from protea_contracts import (
     FEATURE_FAMILIES,
-    RESERVED_COLUMNS,
     SCHEMA_VERSION,
-    compute_feature_schema_sha,
-    compute_schema_sha,
-    required_columns,
 )
 
 

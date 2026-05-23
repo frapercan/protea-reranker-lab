@@ -22,25 +22,20 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install pip-audit
-        run: pip install pip-audit
-      - name: pip-audit on PEP 621 deps (no install, skips private git deps)
-        # Research sandbox: surface CVEs so the user sees them, but
-        # do not block iteration. We extract dependencies directly from
-        # pyproject.toml, skip git+https entries (private repos
-        # unreachable from the lab's GITHUB_TOKEN scope), and audit the
-        # resulting requirements file. No install means no transitive
-        # private-repo git clones and no auth failures in CI.
+      - name: Install pip-audit + poetry export plugin
         run: |
-          python - <<'PY' > /tmp/req.txt
-          import tomllib
-          with open("pyproject.toml", "rb") as f:
-              data = tomllib.load(f)
-          for dep in data["project"].get("dependencies", []):
-              if "git+" in dep or "@ file:" in dep:
-                  continue
-              print(dep)
-          PY
+          pip install pip-audit poetry
+          poetry self add poetry-plugin-export
+      - name: pip-audit on poetry.lock (audits full resolved tree)
+        # Export the resolved lockfile to a requirements format pip-audit
+        # understands. This catches transitive CVEs, not just the
+        # top-level pins in pyproject. The single private git dep
+        # (protea-contracts) is dropped from the audit input because
+        # the lab's GITHUB_TOKEN cannot reach that repo; protea-contracts
+        # runs its own pip-audit on every PR there.
+        run: |
+          poetry export -f requirements.txt --without-hashes --output /tmp/req.txt
+          sed -i '/^protea-contracts /d; /protea-contracts @ git+/d' /tmp/req.txt
           pip-audit --strict --vulnerability-service osv -r /tmp/req.txt || true
 
   bandit:

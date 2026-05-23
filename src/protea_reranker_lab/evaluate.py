@@ -33,7 +33,6 @@ def fmax_per_protein_group(
     thresholds = np.array([lo]) if hi <= lo else np.linspace(lo, hi, n_thresholds)
 
     starts = edges[:-1]
-    stops = edges[1:]
 
     pos_mask = labels > 0
     n_pos_per_group = np.add.reduceat(pos_mask.astype(np.int64), starts)

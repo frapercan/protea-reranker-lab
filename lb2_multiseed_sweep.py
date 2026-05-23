@@ -13,12 +13,10 @@ Writes:
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 import time
 import zlib
-from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
@@ -309,7 +307,6 @@ def run_cafaeval(cell: str, seed: int, run_report: dict) -> dict:
     # Parse fmax for the right namespace
     aspect = cell.split("-", 1)[1]
     target_ns = ASPECT_TO_NS.get(aspect)
-    target_key = f"f__{target_ns}"
     cafaeval_fmax = None
     for metric_kind, records in raw.items():
         for rec in records:
@@ -507,8 +504,8 @@ def main():
     print("\n" + "=" * 60)
     print("LB.2 multi-seed sweep RESULTS")
     print("=" * 60)
-    print(f"Run set: lb2_multiseed (6 cells x 3 seeds = 18 runs)")
-    print(f"Per-cell cafaeval Fmax (mean ± 95% bootstrap CI):")
+    print("Run set: lb2_multiseed (6 cells x 3 seeds = 18 runs)")
+    print("Per-cell cafaeval Fmax (mean ± 95% bootstrap CI):")
     for cell in CELLS:
         ci = cis[cell]
         m = ci.get("mean")
@@ -522,7 +519,7 @@ def main():
             print(f"  {cell}: N/A")
     print(f"\nSelective avg (6 NK+LK + 3 PK baseline) ± CI: "
           f"{selective_avg:.4f} ± {(sel_ci_hi - sel_ci_lo)/2:.4f}")
-    print(f"Champion comparison vs 0.6408 (single-seed):")
+    print("Champion comparison vs 0.6408 (single-seed):")
     delta = (selective_avg - 0.6408) if selective_avg is not None else None
     if delta is not None:
         direction = "+" if delta >= 0 else ""
