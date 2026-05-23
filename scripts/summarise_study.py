@@ -9,7 +9,6 @@ note instead of erroring.
 from __future__ import annotations
 
 import csv
-import json
 import statistics as stats
 from collections import defaultdict
 from pathlib import Path
@@ -261,7 +260,8 @@ def _section_cafaeval() -> str:
         cafa = _f(r.get("cafaeval_fmax"))
         if lab is None or cafa is None:
             continue
-        labs.append(lab); cafas.append(cafa)
+        labs.append(lab)
+        cafas.append(cafa)
         ratio = cafa / lab if lab else float("nan")
         delta = cafa - lab
         lines.append(f"| {c} | {lab:.4f} | **{cafa:.4f}** | {ratio:.2f}× | {delta:+.4f} |")

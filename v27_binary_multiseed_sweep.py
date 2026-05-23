@@ -15,12 +15,10 @@ Writes:
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import sys
 import time
 import zlib
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -542,7 +540,7 @@ def main() -> None:
 
     start_ts = time.time()
     print(f"\n=== v27-binary-multiseed: {len(CELLS)} cells x {len(SEEDS)} seeds ===")
-    print(f"Objective: binary | Features: lean+lin+emb (all 56) | neg_pos_ratio=10")
+    print("Objective: binary | Features: lean+lin+emb (all 56) | neg_pos_ratio=10")
     print(f"Seeds: {SEEDS}\n")
 
     wall_clock: dict[tuple[str, int], float] = {}
@@ -571,7 +569,7 @@ def main() -> None:
         for seed in SEEDS:
             elapsed = time.time() - start_ts
             if elapsed > 3.5 * 3600:
-                print(f"[HALT] 3.5h exceeded. Stopping before cafaeval.")
+                print("[HALT] 3.5h exceeded. Stopping before cafaeval.")
                 sys.exit(1)
             m = run_cafaeval(cell, seed, all_reports[cell].get(seed, {}))
             cafaeval_results[cell][seed] = m
@@ -636,7 +634,7 @@ def main() -> None:
     print("\n" + "=" * 70)
     print("v27-binary-multiseed RESULTS")
     print("=" * 70)
-    print(f"Hparams source: spec_catalog.md study-v26-binary")
+    print("Hparams source: spec_catalog.md study-v26-binary")
     print(f"Seeds: {SEEDS}")
     print()
     print("Per-cell cafaeval Fmax (mean +- 95% CI half-width) | vs v22 delta:")
