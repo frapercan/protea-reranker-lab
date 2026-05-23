@@ -58,6 +58,43 @@ FARM-EXP.3 record format on disk so the auto-walker picks them up.
 Until then, this appendix is the source of truth for pre-FARM-EXP.3
 champion records.
 
+### FARM-EXP.10 formal run records (2026-05-23)
+
+**Run tag:** `farm_exp_10`
+**Location:** `runs/transversal/farm_exp_10/` (18 runs: 6 NK+LK cells x 3 seeds)
+**Summary:** `experiments/farm_exp_10/summary.json`
+**ADR:** `docs/adr/D34-selective-rerank-resurrection.md`
+
+FARM-EXP.10 places the formal run records for the selective-rerank recompute
+under `runs/transversal/farm_exp_10/`. The configuration is the v6+lineage-leakfree
+bundle (34 features, anc2vec+emb_pca dropped) trained on `bench-v1-K5-v226-lineage-prostt5`
+(eval window v226-v230), lambdarank, seeds {42, 7, 137}. PK cells use KNN baseline
+fallback (DAG-closure shortcut; see ADR D34).
+
+The lab_fmax training metric values reproduced from FARM-EXP.8 grid (confirming
+reproducibility). Cafaeval Fmax values are from the canonical LB.2 multi-seed
+sweep (same configuration, eval via cafaeval prop=fill, norm=cafa, no_orphans=True).
+
+**Per-cell selective table (cafaeval Fmax, mean over seeds 42/7/137):**
+
+| cell | policy | cafaeval_mean | ci_half | baseline | delta |
+| - | - | - | - | - | - |
+| nk-bpo | reranker | 0.5596 | 0.0024 | 0.5333 | +0.0263 |
+| nk-mfo | reranker | 0.7065 | 0.0036 | 0.6447 | +0.0618 |
+| nk-cco | reranker | 0.7774 | 0.0048 | 0.7000 | +0.0774 |
+| lk-bpo | reranker | 0.6460 | 0.0032 | 0.5844 | +0.0616 |
+| lk-mfo | reranker | 0.6806 | 0.0060 | 0.5816 | +0.0990 |
+| lk-cco | reranker | 0.7367 | 0.0091 | 0.7053 | +0.0314 |
+| pk-bpo | baseline | 0.4031 | n/a | 0.4031 | 0.0000 |
+| pk-mfo | baseline | 0.4831 | n/a | 0.4831 | 0.0000 |
+| pk-cco | baseline | 0.6009 | n/a | 0.6009 | 0.0000 |
+
+**Headline:**
+- 6-cell NK+LK reranker avg: **0.6845**
+- 9-cell selective avg cafaeval Fmax: **0.6215 +/- 0.0014**
+- Supersedes legacy v18 0.4562 champion (delta: +0.1653; conflates eval distribution
+  alignment and leakage removal; publishable selective lift over same-bench baseline: +0.0397)
+
 ### eval_set: bench-v1-K5-v226-lineage-prostt5
 
 LR.4 closure entry. Source: LB.2 multi-seed sweep (3 seeds: 42, 7,

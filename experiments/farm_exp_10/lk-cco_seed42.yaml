@@ -1,0 +1,62 @@
+schema_version: v1
+name: farm_exp_10_lk-cco_seed42
+description: 'FARM-EXP.10 selective-rerank recompute on bench-v1-K5-v226-lineage-prostt5.
+
+  Cell=lk-cco, seed=42. Leakage-fixed bundle (v6+lineage-leakfree):
+
+  drops anc2vec_neighbor, anc2vec_query, emb_pca families.
+
+  Supersedes legacy v18 0.4562 champion.
+
+  '
+dataset:
+  manifest: datasets/bench-v1-K5-v226-lineage-prostt5/manifest.json
+model:
+  kind: lgbm_reranker
+  defaults:
+    objective: lambdarank
+    num_boost_round: 10000
+    early_stopping_rounds: 100
+    learning_rate: 0.05
+    num_leaves: 63
+    min_data_in_leaf: 100
+    drop_features:
+    - anc2vec_has_emb
+    - anc2vec_neighbor_cos
+    - anc2vec_neighbor_maxcos
+    - anc2vec_query_known_cos
+    - anc2vec_query_known_count
+    - anc2vec_query_known_maxcos
+    - emb_pca_query_0
+    - emb_pca_query_1
+    - emb_pca_query_2
+    - emb_pca_query_3
+    - emb_pca_query_4
+    - emb_pca_query_5
+    - emb_pca_query_6
+    - emb_pca_query_7
+    - emb_pca_query_8
+    - emb_pca_query_9
+    - emb_pca_query_10
+    - emb_pca_query_11
+    - emb_pca_query_12
+    - emb_pca_query_13
+    - emb_pca_query_14
+    - emb_pca_query_15
+training:
+  cell: lk-cco
+  val_strategy: protein_group
+  val_fraction: 0.2
+  seed: 42
+  propagate_labels: false
+sweep:
+  backend: none
+output_dir: runs/transversal/farm_exp_10/lk-cco_seed42
+tags:
+- farm_exp_10
+- v6+lineage-leakfree
+- bench-v1-K5-v226-lineage-prostt5
+- lk-cco
+- seed42
+- selective-rerank
+keep_staging: false

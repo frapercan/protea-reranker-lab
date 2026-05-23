@@ -1,0 +1,200 @@
+{
+  "slice": "FARM-EXP.10",
+  "description": "Selective rerank resurrection: recompute on bench-v1-K5-v226-lineage-prostt5. Re-trains the leakage-fixed bundle (v6+lineage-leakfree) on the current bench, superseding the legacy v18 0.4562 champion (leakage-contaminated, range-unknown).",
+  "config": {
+    "dataset": "bench-v1-K5-v226-lineage-prostt5",
+    "eval_window": "v226-v230",
+    "features": "v6+lineage-leakfree (34 features: knn, alignment, length, taxonomy, go_context, lineage; anc2vec+emb_pca dropped)",
+    "objective": "lambdarank",
+    "num_boost_round": 10000,
+    "early_stopping_rounds": 100,
+    "learning_rate": 0.05,
+    "num_leaves": 63,
+    "seeds": [
+      42,
+      7,
+      137
+    ],
+    "val_strategy": "protein_group"
+  },
+  "policy": {
+    "nk_lk": "reranker (6 cells)",
+    "pk": "knn_baseline_fallback (3 cells, DAG-closure shortcut)",
+    "rationale": "ADR D34: lineage features induce DAG-closure shortcut overfit on PK cells"
+  },
+  "aggregate_cafaeval": {
+    "nk_lk_mean": 0.6845,
+    "selective_avg_9cell": 0.6215,
+    "selective_avg_ci_half": 0.0014,
+    "all_baseline_avg": 0.5818,
+    "selective_vs_baseline_delta": 0.0397,
+    "legacy_champion_0_4562_superseded": true,
+    "delta_vs_legacy": 0.1653
+  },
+  "per_cell": {
+    "nk-bpo": {
+      "policy": "reranker",
+      "seeds": {
+        "7": 0.04131181963736574,
+        "42": 0.04014354870049195,
+        "137": 0.04473562995944465
+      },
+      "lab_fmax_mean": 0.042064,
+      "lab_fmax_std": 0.002387,
+      "run_ids": {
+        "7": "20260523T111006_farm_exp_10_nk-bpo_seed7_ad75cc",
+        "42": "20260523T102551_farm_exp_10_nk-bpo_seed42_42cca6",
+        "137": "20260523T113109_farm_exp_10_nk-bpo_seed137_f984be"
+      },
+      "cafaeval_fmax_mean": 0.5596,
+      "cafaeval_fmax_ci_half": 0.0024,
+      "cafaeval_baseline": 0.5333,
+      "cafaeval_delta": 0.0263,
+      "source": "lab_run+lb2_cafaeval"
+    },
+    "nk-mfo": {
+      "policy": "reranker",
+      "seeds": {
+        "7": 0.1890848811370136,
+        "42": 0.1927349939159596,
+        "137": 0.1952810291547815
+      },
+      "lab_fmax_mean": 0.192367,
+      "lab_fmax_std": 0.003114,
+      "run_ids": {
+        "7": "20260523T113117_farm_exp_10_nk-mfo_seed7_44d9aa",
+        "42": "20260523T111018_farm_exp_10_nk-mfo_seed42_3052d7",
+        "137": "20260523T120109_farm_exp_10_nk-mfo_seed137_297f64"
+      },
+      "cafaeval_fmax_mean": 0.7065,
+      "cafaeval_fmax_ci_half": 0.0036,
+      "cafaeval_baseline": 0.6447,
+      "cafaeval_delta": 0.0618,
+      "source": "lab_run+lb2_cafaeval"
+    },
+    "nk-cco": {
+      "policy": "reranker",
+      "seeds": {
+        "7": 0.14959566524261128,
+        "42": 0.14729868982841685,
+        "137": 0.14791512045432872
+      },
+      "lab_fmax_mean": 0.14827,
+      "lab_fmax_std": 0.001189,
+      "run_ids": {
+        "7": "20260523T105431_farm_exp_10_nk-cco_seed7_286e47",
+        "42": "20260523T105404_farm_exp_10_nk-cco_seed42_34fe6f",
+        "137": "20260523T105507_farm_exp_10_nk-cco_seed137_c1c8f6"
+      },
+      "cafaeval_fmax_mean": 0.7774,
+      "cafaeval_fmax_ci_half": 0.0048,
+      "cafaeval_baseline": 0.7,
+      "cafaeval_delta": 0.0774,
+      "source": "lab_run+lb2_cafaeval"
+    },
+    "lk-bpo": {
+      "policy": "reranker",
+      "seeds": {
+        "7": 0.050219463458746366,
+        "42": 0.04819975931214249,
+        "137": 0.051632594844817595
+      },
+      "lab_fmax_mean": 0.050017,
+      "lab_fmax_std": 0.001725,
+      "run_ids": {
+        "7": "20260523T105648_farm_exp_10_lk-bpo_seed7_554b10",
+        "42": "20260523T105600_farm_exp_10_lk-bpo_seed42_c0bf87",
+        "137": "20260523T105720_farm_exp_10_lk-bpo_seed137_d85218"
+      },
+      "cafaeval_fmax_mean": 0.646,
+      "cafaeval_fmax_ci_half": 0.0032,
+      "cafaeval_baseline": 0.5844,
+      "cafaeval_delta": 0.0616,
+      "source": "lab_run+lb2_cafaeval"
+    },
+    "lk-mfo": {
+      "policy": "reranker",
+      "seeds": {
+        "7": 0.15258781843861757,
+        "42": 0.1525597003697181,
+        "137": 0.15864207328385851
+      },
+      "lab_fmax_mean": 0.154597,
+      "lab_fmax_std": 0.003504,
+      "run_ids": {
+        "7": "20260523T105818_farm_exp_10_lk-mfo_seed7_38eacf",
+        "42": "20260523T105740_farm_exp_10_lk-mfo_seed42_96da54",
+        "137": "20260523T105841_farm_exp_10_lk-mfo_seed137_8d0106"
+      },
+      "cafaeval_fmax_mean": 0.6806,
+      "cafaeval_fmax_ci_half": 0.006,
+      "cafaeval_baseline": 0.5816,
+      "cafaeval_delta": 0.099,
+      "source": "lab_run+lb2_cafaeval"
+    },
+    "lk-cco": {
+      "policy": "reranker",
+      "seeds": {
+        "7": 0.11178187264519462,
+        "42": 0.11403320447435976,
+        "137": 0.11517819236684874
+      },
+      "lab_fmax_mean": 0.113664,
+      "lab_fmax_std": 0.001728,
+      "run_ids": {
+        "7": "20260523T105931_farm_exp_10_lk-cco_seed7_7b010f",
+        "42": "20260523T105916_farm_exp_10_lk-cco_seed42_10a471",
+        "137": "20260523T105946_farm_exp_10_lk-cco_seed137_a47044"
+      },
+      "cafaeval_fmax_mean": 0.7367,
+      "cafaeval_fmax_ci_half": 0.0091,
+      "cafaeval_baseline": 0.7053,
+      "cafaeval_delta": 0.0314,
+      "source": "lab_run+lb2_cafaeval"
+    },
+    "pk-bpo": {
+      "policy": "baseline_fallback",
+      "cafaeval_fmax_mean": 0.4031,
+      "cafaeval_delta": 0.0,
+      "source": "knn_baseline",
+      "note": "PK falls back to KNN baseline (DAG-closure shortcut; see ADR D34)"
+    },
+    "pk-mfo": {
+      "policy": "baseline_fallback",
+      "cafaeval_fmax_mean": 0.4831,
+      "cafaeval_delta": 0.0,
+      "source": "knn_baseline",
+      "note": "PK falls back to KNN baseline (DAG-closure shortcut; see ADR D34)"
+    },
+    "pk-cco": {
+      "policy": "baseline_fallback",
+      "cafaeval_fmax_mean": 0.6009,
+      "cafaeval_delta": 0.0,
+      "source": "knn_baseline",
+      "note": "PK falls back to KNN baseline (DAG-closure shortcut; see ADR D34)"
+    }
+  },
+  "run_tag": "farm_exp_10",
+  "runs_dir": "runs/transversal/farm_exp_10/",
+  "date": "2026-05-23",
+  "spec_files": [
+    "experiments/farm_exp_10/nk-bpo_seed42.yaml",
+    "experiments/farm_exp_10/nk-bpo_seed7.yaml",
+    "experiments/farm_exp_10/nk-bpo_seed137.yaml",
+    "experiments/farm_exp_10/nk-mfo_seed42.yaml",
+    "experiments/farm_exp_10/nk-mfo_seed7.yaml",
+    "experiments/farm_exp_10/nk-mfo_seed137.yaml",
+    "experiments/farm_exp_10/nk-cco_seed42.yaml",
+    "experiments/farm_exp_10/nk-cco_seed7.yaml",
+    "experiments/farm_exp_10/nk-cco_seed137.yaml",
+    "experiments/farm_exp_10/lk-bpo_seed42.yaml",
+    "experiments/farm_exp_10/lk-bpo_seed7.yaml",
+    "experiments/farm_exp_10/lk-bpo_seed137.yaml",
+    "experiments/farm_exp_10/lk-mfo_seed42.yaml",
+    "experiments/farm_exp_10/lk-mfo_seed7.yaml",
+    "experiments/farm_exp_10/lk-mfo_seed137.yaml",
+    "experiments/farm_exp_10/lk-cco_seed42.yaml",
+    "experiments/farm_exp_10/lk-cco_seed7.yaml",
+    "experiments/farm_exp_10/lk-cco_seed137.yaml"
+  ]
+}
