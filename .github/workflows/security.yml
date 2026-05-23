@@ -24,13 +24,24 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Install pip-audit
         run: pip install pip-audit
-      - name: pip-audit on requirements (non-blocking)
+      - name: pip-audit on PEP 621 deps (no install, skips private git deps)
         # Research sandbox: surface CVEs so the user sees them, but
-        # do not block iteration. Audits the resolved dependency tree
-        # via the installed metadata after a transient install.
+        # do not block iteration. We extract dependencies directly from
+        # pyproject.toml, skip git+https entries (private repos
+        # unreachable from the lab's GITHUB_TOKEN scope), and audit the
+        # resulting requirements file. No install means no transitive
+        # private-repo git clones and no auth failures in CI.
         run: |
-          pip install -e . || true
-          pip-audit --strict --vulnerability-service osv || true
+          python - <<'PY' > /tmp/req.txt
+          import tomllib
+          with open("pyproject.toml", "rb") as f:
+              data = tomllib.load(f)
+          for dep in data["project"].get("dependencies", []):
+              if "git+" in dep or "@ file:" in dep:
+                  continue
+              print(dep)
+          PY
+          pip-audit --strict --vulnerability-service osv -r /tmp/req.txt || true
 
   bandit:
     runs-on: ubuntu-22.04
