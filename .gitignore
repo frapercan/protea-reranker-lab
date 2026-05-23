@@ -8,6 +8,7 @@ datasets/*/*.arrow
 datasets/bench-v1-K5
 datasets/bench-v1-K5-filtered
 datasets/bench-v1-K5-v10/
+datasets/bench-v1-K5-v226-lineage-prostt5
 datasets/no-emb-prostt5-k5-features/
 experiments/_generated/
 experiments/leakage_fix/
