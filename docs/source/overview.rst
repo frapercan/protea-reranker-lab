@@ -7,6 +7,23 @@ raw 56-feature parquet dumps produced by PROTEA's
 ``export_research_dataset`` operation and trains a streaming ranking
 model without ever materialising full data frames in memory.
 
+Published champion
+------------------
+
+The current publishable result (multi-seed, leakage-fixed, 2026-05-17)
+is a selective-average cafaeval Fmax of **0.6215 +/- 0.0014** on
+``bench-v1-K5-v226-lineage`` (NK+LK cells, 3 seeds). All six NK+LK
+paired-bootstrap confidence intervals are strictly positive at 95%
+(N=10000 bootstrap iterations per cell). This figure is cited in
+Chapter 6 of the doctoral thesis.
+
+An earlier number (0.4562) arose from a train-parquet construction
+issue where the GO category column was replicated across snapshots for
+the same protein-term pair, inflating the effective training signal
+without introducing temporal leakage. The fix is tracked in PROTEA
+memory key ``project_anc2vec_leakage_mechanism``. Do not cite 0.4562
+in any published output.
+
 Architecture
 ------------
 
@@ -33,7 +50,12 @@ The pipeline is split into discrete stages:
    protein-averaged Fmax on flat numpy arrays, mirroring PROTEA's own
    evaluation logic but without any pandas dependency.
 
-6. **Runner** (:mod:`protea_reranker_lab.runner`) wires all of the above
+6. **Compare** (:mod:`protea_reranker_lab.compare`) runs a per-protein
+   paired bootstrap of Fmax between the trained booster and the
+   KNN-only ``vote_count`` baseline to produce 95% confidence intervals
+   and a one-sided p-value.
+
+7. **Runner** (:mod:`protea_reranker_lab.runner`) wires all of the above
    into a single :func:`~protea_reranker_lab.runner.run_experiment` call
    that is invoked by the CLI (:mod:`protea_reranker_lab.train`).
 

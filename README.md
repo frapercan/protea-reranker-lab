@@ -1,168 +1,10 @@
 # protea-reranker-lab
 
-Research sandbox for iterating on the PROTEA GO-term reranker without the full
-PROTEA stack (Postgres / RabbitMQ / workers / API).
-
-Core idea: PROTEA's expensive KNN feature computation is amortised by exporting
-**frozen feature datasets** to parquet. The lab consumes the parquet + manifest,
-fits LightGBM via a **streaming** PyArrow pipeline (no pandas materialisation),
-evaluates per-cell, and publishes the winning booster back to PROTEA's
-`RerankerModel` registry.
-
-**Status:** v0.2.0 (active research sandbox, pre-1.0; no stable public API; results published to PROTEA via `POST /reranker-models/import-by-reference`).
-See the [PROTEA stack architecture](https://github.com/frapercan/PROTEA#repositories-in-the-protea-stack) for where this package fits.
-
-**Install + smoke test:**
-```bash
-pip install -e .
-python scripts/run.py experiments/example.yaml
-```
-
-## Repo layout
-
-```
-protea-reranker-lab/
-├── datasets/                  # frozen feature dumps (git-ignored, large)
-│   └── bench-v1-K5/
-│       ├── train.parquet      # 12 multisnap pairs v160→v220
-│       ├── eval.parquet       # hold-out v220→v230, partitioned (cat, aspect)
-│       ├── manifest.json      # schema sha, K, embedding, deltas
-│       └── parent_map.json    # GO is_a/part_of edges (optional, propagation)
-├── src/protea_reranker_lab/
-│   ├── data.py                # PyArrow streaming primitives
-│   ├── staging.py             # bucket-sort + cell filter + cat-encode + split
-│   ├── sequences.py           # ParquetFeatureSequence (lgb.Sequence)
-│   ├── reranker.py            # feature defs + streaming fit / predict
-│   ├── evaluate.py            # numpy-only protein-grouped Fmax
-│   ├── runner.py              # ExperimentSpec → run_experiment orchestrator
-│   ├── bootstrap.py           # paired bootstrap CIs vs KNN baseline
-│   ├── experiment.py          # ExperimentSpec / DatasetRef / SweepRef
-│   ├── schemas.py             # ManifestV1 + DatasetSpec + schema_sha helpers
-│   ├── builder.py             # streaming reshape (column prune + snap filter)
-│   └── train.py               # CLI wrapper around run_experiment
-├── scripts/
-│   ├── run.py                 # run a single ExperimentSpec YAML
-│   ├── build_study_specs.py   # generate the historical study YAMLs (F1/F2/F4)
-│   ├── run_study.py           # sequential, resumable phase orchestrator
-│   ├── run_bootstrap_phase.py # F3 paired bootstrap driver
-│   ├── summarise_study.py     # aggregate phase CSVs → SUMMARY.md
-│   └── export_parent_map.py   # one-shot DB → parent_map.json (PROTEA venv)
-└── runs/study_v9/             # study artefacts (git-ignored)
-    ├── replication/           # F1: per-cell CSV + run.json + model.txt
-    ├── ablation/              # F2: leave-one-family-out
-    ├── hparam/                # F4: 3³ hparam grid on nk-bpo
-    ├── bootstrap/             # F3: paired bootstrap CIs
-    └── SUMMARY.md             # auto-generated, drop-in for thesis
-```
-
-## Quickstart
-
-```bash
-# 1. Install (Python 3.11+)
-pip install -e .
-
-# 2. Dataset must be present at datasets/bench-v1-K5/ (produced by PROTEA
-#    via export_research_dataset). Verify manifest.json + train.parquet +
-#    eval.parquet are there.
-
-# 3. Run a single experiment from a YAML spec
-python scripts/run.py experiments/_generated/study_v9/f1_replication/nk-bpo_seed42.yaml
-
-# 4. Or run a whole study phase (sequential, resumable)
-python scripts/build_study_specs.py     # generate 93 YAMLs
-python scripts/run_study.py f1          # 27 specs replication
-python scripts/run_study.py f2          # 39 specs ablation
-python scripts/run_study.py f4          # 27 specs hparam grid
-
-# 5. Bootstrap CIs vs KNN baseline (after f1 winners)
-python scripts/run_bootstrap_phase.py
-
-# 6. Aggregate everything into SUMMARY.md
-python scripts/summarise_study.py
-```
-
-## Feature schema
-
-52 features, identical layout to PROTEA's `reranker.py` (vendored constant).
-Categorical encoding is performed at staging time using the lab's own code
-maps; the resulting bucket parquets store int-encoded categoricals plus
-float32 numerics.
-
-## Streaming staging
-
-`stage_for_training` produces sorted-by-protein bucket parquet files plus
-`labels.npy` / `groups.npy` / `proteins.npy`. The trainer reads features
-through `ParquetFeatureSequence` (an `lgb.Sequence` that lazy-loads row
-groups) so RSS during fit stays bounded. Peak is approximately 12 GB on the largest cell
-(nk-bpo, 27.6M rows x 52 features).
-
-Optional True-Path-Rule label propagation (`propagate_labels=True` +
-`parent_map.json`) is **off by default**: the bench-v1-K5 dataset is
-generated with PROTEA's reconciled-mode evaluation, which already applies
-ancestor closure before producing `gt_pairs`. Re-propagating in the lab
-causes double-propagation and degrades fmax.
-
-## Test
-
-The lab ships without a formal `pytest` test suite (it is a research
-sandbox). Functional correctness is guarded by the study pipeline itself:
-
-```bash
-# Smoke: run a single lightweight experiment spec
-python scripts/run.py experiments/example.yaml
-
-# End-to-end study phases (requires the bench-v1-K5 dataset at datasets/)
-python scripts/run_study.py f1      # 27 replication specs
-python scripts/summarise_study.py   # aggregate results to SUMMARY.md
-```
-
-The `example.yaml` experiment spec is designed to complete in under 5 minutes
-on CPU with a small parquet slice. It validates the full data pipeline
-(stage, fit, evaluate, summarise) without needing the full bench-v1-K5 dataset.
-
-Linting and type checks:
-
-```bash
-pip install -e ".[dev]"
-ruff check src scripts
-mypy src
-```
-
-## Contributing
-
-Contributions are welcome from research collaborators.
-
-**Branch strategy:** all changes go to `develop`; `main` tracks stable
-releases only.
-
-```bash
-git clone https://github.com/frapercan/protea-reranker-lab.git
-cd protea-reranker-lab
-git checkout develop
-git checkout -b feature/my-feature
-
-pip install -e ".[dev]"
-
-# Make your changes, then verify locally:
-python scripts/run.py experiments/example.yaml
-ruff check src scripts
-mypy src
-
-# Open a pull request targeting develop
-```
-
-Key constraints:
-- Dataset artefacts (`datasets/`, `runs/`) are git-ignored. Never commit
-  large parquet files or trained models.
-- The lab is a consumer of PROTEA's artifact store, not a replacement.
-  Changes that require PROTEA API modifications belong in PROTEA, not here.
-- PROTEA's `feature_schema_sha` must match the lab's feature layout. If
-  you add or rename features, update both repos in a coordinated PR pair
-  and bump `protea-contracts` accordingly.
-
-## License
-
-MIT. See `LICENSE`.
+Offline LightGBM training laboratory for the PROTEA GO-term reranker.
+The lab consumes frozen feature datasets exported from PROTEA, fits a
+streaming ranking model without ever loading a full DataFrame into
+memory, evaluates per ontology-aspect cell, and publishes winning
+boosters back to PROTEA's `RerankerModel` registry.
 
 <!-- protea-stack:start -->
 
@@ -174,7 +16,7 @@ Single source of truth: [`docs/source/_data/stack.yaml`](https://github.com/frap
 |------|------|--------|---------|
 | [PROTEA](https://github.com/frapercan/PROTEA) | Platform | `active` | Backend platform. Hosts the ORM, job queue, FastAPI surface, frontend, and orchestration. |
 | [protea-contracts](https://github.com/frapercan/protea-contracts) | Contracts | `beta` | Shared contract surface. ABCs, pydantic payloads, feature schema, schema_sha. Imported by every other repo. |
-| [protea-method](https://github.com/frapercan/protea-method) | Inference | `skeleton` | Pure inference path (KNN, feature compute, reranker apply). Target of the F2C extraction. Bind-mounted by the LAFA containers. |
+| [protea-method](https://github.com/frapercan/protea-method) | Inference | `active` | Pure inference path (KNN, feature compute, reranker apply). LAFA inference layer; publishes to DockerHub. |
 | [protea-sources](https://github.com/frapercan/protea-sources) | Source plugin | `skeleton` | Annotation source plugins (GOA, QuickGO, UniProt). Discovered via Python entry_points. |
 | [protea-runners](https://github.com/frapercan/protea-runners) | Runner plugin | `skeleton` | Experiment runner plugins (LightGBM lab, KNN baseline, future GNN). Discovered via Python entry_points. |
 | [protea-backends](https://github.com/frapercan/protea-backends) | Backend plugin | `skeleton` | Protein language model embedding backends (ESM family, T5/ProstT5, Ankh, ESM3-C). Discovered via Python entry_points. |
@@ -182,3 +24,233 @@ Single source of truth: [`docs/source/_data/stack.yaml`](https://github.com/frap
 | [cafaeval-protea](https://github.com/frapercan/cafaeval-protea) | Evaluator | `active` | Standalone fork of cafaeval (CAFA-evaluator-PK) with the PK-coverage fix and a bit-exact parity guarantee against the upstream. |
 
 <!-- protea-stack:end -->
+
+## What and why
+
+PROTEA's KNN candidate retrieval already produces competitive GO-term
+rankings (vote-count baseline). A LightGBM reranker trained on the
+56-feature schema defined in `protea-contracts` brings a statistically
+significant improvement over that baseline.
+
+Training on millions of protein-term pairs inside the full PROTEA stack
+would require materialising large DataFrames, tying up the API server,
+and sharing scarce GPU resources with embedding jobs. This lab decouples
+all of that: PROTEA exports a *frozen* parquet snapshot once, and the
+lab iterates on hyperparameters and ablations entirely offline, reading
+through sorted parquet buckets as `lgb.Sequence` objects to keep peak
+RSS bounded below 15 GB even on the largest cell.
+
+**Published champion (multi-seed, leakage-fixed, 2026-05-17):**
+Selective average cafaeval Fmax **0.6215 +/- 0.0014** on
+`bench-v1-K5-v226-lineage` (NK+LK cells, 3 seeds). All six NK+LK
+paired-bootstrap confidence intervals are strictly positive at 95%
+(N=10000). This is the number cited in Chapter 6 of the doctoral
+thesis. See the [Leakage history](#leakage-history) note below for
+why an earlier number (0.4562) must not be cited.
+
+## Place in the stack
+
+```
+PROTEA (export_research_dataset)
+    └── datasets/bench-v1-K5-v226-lineage/
+            ├── train.parquet
+            ├── eval.parquet
+            └── manifest.json
+                    |
+                    v
+        protea-reranker-lab
+            ├── staging  → sorted bucket parquets + labels.npy
+            ├── train    → LightGBM booster (model.txt)
+            ├── eval     → numpy Fmax per cell
+            └── compare  → paired bootstrap CI vs KNN baseline
+                    |
+                    v
+        POST /reranker-models/import-by-reference
+            → PROTEA RerankerModel registry
+```
+
+## Install
+
+Python 3.11 or later is required.
+
+```bash
+git clone https://github.com/frapercan/protea-reranker-lab.git
+cd protea-reranker-lab
+git checkout develop
+
+pip install -e .          # runtime only
+pip install -e ".[dev]"   # + ruff / mypy / sphinx
+```
+
+## Dataset pull, train, evaluate, import flow
+
+### Step 1 — pull dataset from PROTEA
+
+Dispatch an `export_research_dataset` job through the PROTEA REST API.
+Never pull via ad-hoc curl; use the `POST /datasets` endpoint:
+
+```bash
+curl -s -X POST http://localhost:3000/api/v1/datasets \
+  -H "Content-Type: application/json" \
+  -d '{"operation": "export_research_dataset",
+       "payload": {"cell": "nk-mfo",
+                   "train_versions": [160,200,210,215,220],
+                   "test_versions": [230],
+                   "k": 5,
+                   "embedding_config_id": "<uuid>"}}'
+```
+
+The job writes `train.parquet`, `eval.parquet`, and `manifest.json`
+to PROTEA's storage. Download those three files into
+`datasets/<your-dataset-name>/` before running the lab.
+
+### Step 2 — train
+
+The CLI entry-point is `protea_reranker_lab.train`:
+
+```bash
+python -m protea_reranker_lab.train \
+  --dataset datasets/bench-v1-K5-v226-lineage \
+  --cell nk-mfo \
+  --objective lambdarank \
+  --num-boost-round 5000 \
+  --early-stopping-rounds 50 \
+  --seed 42 \
+  --wandb-mode disabled \
+  --output-dir runs/nk-mfo-seed42
+```
+
+Or run a full study phase (sequential, resumable):
+
+```bash
+python scripts/build_study_specs.py   # generate YAMLs under experiments/
+python scripts/run_study.py f1        # 27 replication specs
+python scripts/run_study.py f2        # 39 ablation specs (leave-one-family-out)
+python scripts/run_study.py f4        # 27 hparam-grid specs
+```
+
+### Step 3 — evaluate
+
+Evaluation runs automatically at the end of each training call and
+writes `test_fmax` to `run.json`. To recompute metrics on an existing
+predictions file without re-training:
+
+```python
+from pathlib import Path
+import pyarrow.parquet as pq, numpy as np
+from protea_reranker_lab.evaluate import fmax_per_protein_group
+
+table = pq.read_table("runs/nk-mfo-seed42/predictions.parquet",
+                      columns=["label", "score", "group_size"])
+labels = table["label"].to_numpy()
+scores = table["score"].to_numpy()
+groups = table["group_size"].to_numpy()
+print(fmax_per_protein_group(scores, labels, groups))
+```
+
+Aggregate all phase results into a summary table:
+
+```bash
+python scripts/summarise_study.py
+# writes runs/study_<name>/SUMMARY.md
+```
+
+### Step 4 — compare vs KNN baseline
+
+Run the paired bootstrap to obtain confidence intervals:
+
+```bash
+python scripts/run_bootstrap_phase.py \
+  --predictions runs/nk-mfo-seed42/predictions.parquet \
+  --source-eval datasets/bench-v1-K5-v226-lineage/eval.parquet \
+  --cell nk-mfo \
+  --n-iter 10000 \
+  --workdir /tmp/bootstrap \
+  --out runs/nk-mfo-seed42/bootstrap.json
+```
+
+### Step 5 — import winner to PROTEA
+
+```bash
+curl -s -X POST http://localhost:3000/api/v1/reranker-models/import-by-reference \
+  -H "Content-Type: application/json" \
+  -d '{"model_path": "/abs/path/to/runs/nk-mfo-seed42/model.txt",
+       "manifest_sha": "<from manifest.json>",
+       "schema_sha": "<from run.json>",
+       "cell": "nk-mfo",
+       "metrics": {"test_fmax": 0.7528}}'
+```
+
+## Leakage history
+
+An earlier cafaeval Fmax number (0.4562) appeared in internal records
+from a run using the v226-series GOA snapshot. That figure came from a
+multi-snapshot training parquet where the GO category column was
+replicated across snapshots for the same protein-term pair. The
+replication made the train-set size appear artificially large and
+inflated the training signal without introducing temporal leakage (no
+future labels bled into training). The mechanism is documented in
+PROTEA memory key `project_anc2vec_leakage_mechanism`.
+
+The fix (anc2vec retrofix, multi-seed validation) produced the
+**0.6215 +/- 0.0014** estimate cited above. Do not cite 0.4562 in any
+thesis chapter, paper, or external communication.
+
+## Repo layout
+
+```
+protea-reranker-lab/
+├── datasets/                  # frozen feature dumps (git-ignored)
+├── src/protea_reranker_lab/
+│   ├── train.py       # CLI entry-point
+│   ├── evaluate.py    # numpy Fmax
+│   ├── compare.py     # bootstrap comparison namespace
+│   ├── staging.py     # bucket-sort + cell filter
+│   ├── bootstrap.py   # paired bootstrap CIs
+│   ├── runner.py      # ExperimentSpec orchestrator
+│   ├── reranker.py    # LightGBM fit / predict
+│   ├── sequences.py   # lgb.Sequence on parquet buckets
+│   ├── builder.py     # streaming reshape
+│   ├── data.py        # PyArrow streaming primitives
+│   ├── experiment.py  # ExperimentSpec / DatasetRef
+│   └── schemas.py     # ManifestV1 + schema_sha
+├── scripts/           # CLI drivers (run.py, run_study.py, ...)
+├── experiments/       # YAML spec files
+└── docs/              # Sphinx documentation
+```
+
+## Linting and type checks
+
+```bash
+ruff check src scripts
+mypy src
+cd docs && make html
+```
+
+The CI reranker-token linter rejects bare reranker shorthand tokens
+in prose. Use the axis-tuple form or a GOA snapshot name (v226, v230,
+etc.) instead.
+
+## Contributing
+
+All changes go to `develop`; `main` tracks stable releases.
+
+```bash
+git checkout develop && git checkout -b feature/my-feature
+pip install -e ".[dev]"
+python scripts/run.py experiments/example.yaml  # smoke test
+ruff check src scripts && mypy src && cd docs && make html
+gh pr create -B develop --title "feat: ..." --body "..."
+```
+
+Key constraints:
+
+- Dataset artefacts (`datasets/`, `runs/`) are git-ignored. Never
+  commit large parquet files or trained model binaries.
+- The feature schema is owned by `protea-contracts`; renaming features
+  requires a coordinated PR pair and a contracts version bump.
+- The lab consumes PROTEA artefacts; API changes belong in PROTEA.
+
+## License
+
+MIT. Copyright 2026 Francisco Miguel Pérez Canales. See `LICENSE`.

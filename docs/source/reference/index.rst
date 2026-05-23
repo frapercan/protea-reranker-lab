@@ -4,15 +4,16 @@ API Reference
 .. toctree::
    :maxdepth: 1
 
+   train
+   evaluate
+   compare
+   staging
    bootstrap
    builder
    contracts
    data
-   evaluate
    experiment
    reranker
    runner
    schemas
    sequences
-   staging
-   train
