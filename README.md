@@ -237,6 +237,39 @@ protea-reranker-lab/
 └── docs/              # Sphinx documentation
 ```
 
+## Tests
+
+The lab ships a minimum pytest suite to guard the bits whose silent
+breakage would invalidate the thesis Ch6 numbers. Run with::
+
+    poetry install --quiet
+    poetry run pytest -q tests/
+
+The three pillars under `tests/`:
+
+- `tests/test_schema_sha_determinism.py`: the 12-hex `schema_sha`
+  derived from the feature column set must be order-independent and
+  stable across dict and parquet roundtrips. A drift here silently
+  invalidates every cached booster and breaks cross-PR Fmax
+  comparability.
+- `tests/test_golden_parquet_roundtrip.py`: load
+  `tests/fixtures/golden_v27.parquet` (a tiny slice of
+  `bench-v1-K5-v226-lineage-esm2_150m`), then assert reserved columns
+  are present, every feature column lives in
+  `protea_contracts.ALL_FEATURES`, numeric features are float, and
+  labels are binary + finite. Skips with a clear hint if the fixture
+  is absent.
+- `tests/test_train_eval_split_determinism.py`: the train/val/eval
+  split returned by `protea_reranker_lab.staging._decide_split` is
+  reproducible across runs for both the `protein_group` (random
+  k-fold) and `temporal` (snapshot-pair) strategies, including the
+  negative-downsampling branch. Catches undocumented `random_state`
+  defaults and `PYTHONHASHSEED` leaks.
+
+CI runs the suite on Python 3.12 via `.github/workflows/test.yml`. One
+pre-existing test that requires local-only `runs/transversal/*`
+artefacts is deselected in CI; see the workflow comment for context.
+
 ## Linting and type checks
 
 ```bash
