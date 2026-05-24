@@ -6,6 +6,12 @@ streaming ranking model without ever loading a full DataFrame into
 memory, evaluates per ontology-aspect cell, and publishes winning
 boosters back to PROTEA's `RerankerModel` registry.
 
+**Status:** production-grade results pipeline. The current champion
+(binary-objective, multi-seed, 2026-05-18) achieves NK+LK cafaeval Fmax
+**0.7291 +/- 0.0028** on `bench-v1-K5-v226-lineage` (3 seeds, paired
+bootstrap 95% CI strictly positive vs KNN baseline on all six NK+LK
+cells). Results are published to the doctoral thesis (Chapter 6).
+
 <!-- protea-stack:start -->
 
 ## Repositories in the PROTEA stack
@@ -15,11 +21,11 @@ Single source of truth: [`docs/source/_data/stack.yaml`](https://github.com/frap
 | Repo | Role | Status | Summary |
 |------|------|--------|---------|
 | [PROTEA](https://github.com/frapercan/PROTEA) | Platform | `active` | Backend platform. Hosts the ORM, job queue, FastAPI surface, frontend, and orchestration. |
-| [protea-contracts](https://github.com/frapercan/protea-contracts) | Contracts | `beta` | Shared contract surface. ABCs, pydantic payloads, feature schema, schema_sha. Imported by every other repo. |
+| [protea-contracts](https://github.com/frapercan/protea-contracts) | Contracts | `active` | Shared contract surface. ABCs, pydantic payloads, feature schema, schema_sha. Imported by every other repo. |
 | [protea-method](https://github.com/frapercan/protea-method) | Inference | `active` | Pure inference path (KNN, feature compute, reranker apply). LAFA inference layer; publishes to DockerHub. |
-| [protea-sources](https://github.com/frapercan/protea-sources) | Source plugin | `skeleton` | Annotation source plugins (GOA, QuickGO, UniProt). Discovered via Python entry_points. |
-| [protea-runners](https://github.com/frapercan/protea-runners) | Runner plugin | `skeleton` | Experiment runner plugins (LightGBM lab, KNN baseline, future GNN). Discovered via Python entry_points. |
-| [protea-backends](https://github.com/frapercan/protea-backends) | Backend plugin | `skeleton` | Protein language model embedding backends (ESM family, T5/ProstT5, Ankh, ESM3-C). Discovered via Python entry_points. |
+| [protea-sources](https://github.com/frapercan/protea-sources) | Source plugin | `active` | Annotation source plugins (GOA, QuickGO, UniProt, InterPro). Discovered via Python entry_points. |
+| [protea-runners](https://github.com/frapercan/protea-runners) | Runner plugin | `active` | Experiment runner plugins (LightGBM, KNN, baseline). Discovered via Python entry_points. |
+| [protea-backends](https://github.com/frapercan/protea-backends) | Backend plugin | `active` | Protein language model embedding backends (ESM family, T5/ProstT5, Ankh, ESM3-C). Discovered via Python entry_points. |
 | **protea-reranker-lab** (this repo) | Lab | `active` | LightGBM reranker training lab. Pulls datasets from PROTEA, trains boosters, publishes them back via /reranker-models/import-by-reference. |
 | [cafaeval-protea](https://github.com/frapercan/cafaeval-protea) | Evaluator | `active` | Standalone fork of cafaeval (CAFA-evaluator-PK) with the PK-coverage fix and a bit-exact parity guarantee against the upstream. |
 
@@ -40,16 +46,16 @@ lab iterates on hyperparameters and ablations entirely offline, reading
 through sorted parquet buckets as `lgb.Sequence` objects to keep peak
 RSS bounded below 15 GB even on the largest cell.
 
-**Current champion (v27-binary, multi-seed, 2026-05-18):**
+**Current champion (binary-objective, multi-seed, 2026-05-18):**
 NK+LK selective average cafaeval Fmax **0.7291 +/- 0.0028** on
 `bench-v1-K5-v226-lineage` (3 seeds). All six NK+LK paired-bootstrap
 confidence intervals vs the KNN baseline are strictly positive at 95%
-(N=10000). Selective deployment policy: NK+LK cells deploy v27-binary;
-PK cells remain on the KNN baseline (PK gains are policy-zero; see ADR
-D34). This is the publishable number for Chapter 6 of the doctoral thesis.
+(N=10000). Selective deployment policy: NK+LK cells use the binary-objective
+champion; PK cells remain on the KNN baseline (PK gains are policy-zero; see
+ADR D34). This is the publishable number for Chapter 6 of the doctoral thesis.
 
-The earlier LB.2 estimate (0.6215 +/- 0.0014) is superseded by v27-binary
-and should not be cited in place of 0.7291 in new writing. See the
+The earlier LB.2 estimate (0.6215 +/- 0.0014) is superseded by the current
+champion and should not be cited in place of 0.7291 in new writing. See the
 [Leakage history](#leakage-history) note for the full number genealogy and
 why 0.4562 must not be cited.
 
@@ -198,11 +204,11 @@ future labels bled into training). The mechanism is documented in
 PROTEA memory key `project_anc2vec_leakage_mechanism`.
 
 The fix (anc2vec retrofix, multi-seed validation) produced the
-**0.6215 +/- 0.0014** LB.2 estimate. A subsequent v27-binary training
+**0.6215 +/- 0.0014** LB.2 estimate. A subsequent binary-objective training
 run (three seeds, binary classification objective instead of lambdarank)
 produced the current champion **0.7291 +/- 0.0028**. The progression is:
 0.4562 (artefact, do not cite) to 0.6215 (LB.2, superseded) to 0.7291
-(v27-binary, current; cite this for all new writing on bench-v1-K5-v226-lineage NK+LK).
+(binary-objective champion, current; cite this for all new writing on bench-v1-K5-v226-lineage NK+LK).
 
 The selective-rerank decision (ADR D34) is documented in
 `docs/decisions/D34-selective-rerank-policy.md` and the formal run
