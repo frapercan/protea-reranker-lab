@@ -219,6 +219,15 @@ records are in `experiments/study-selective-rerank-K10-v226/`.
 ```
 protea-reranker-lab/
 ├── datasets/                  # frozen feature dumps (git-ignored)
+│   └── <name>/
+│       ├── train.parquet
+│       ├── eval.parquet
+│       ├── manifest.json
+│       └── README.md          # auto-generated per-dataset README
+├── dataset_cards/             # per-PLM HuggingFace-style dataset cards
+│   ├── esm2_150m_card.md
+│   ├── esm2_650m_card.md
+│   └── ...                    # one card per PLM (8 total)
 ├── src/protea_reranker_lab/
 │   ├── train.py       # CLI entry-point
 │   ├── evaluate.py    # numpy Fmax
@@ -232,10 +241,55 @@ protea-reranker-lab/
 │   ├── data.py        # PyArrow streaming primitives
 │   ├── experiment.py  # ExperimentSpec / DatasetRef
 │   └── schemas.py     # ManifestV1 + schema_sha
-├── scripts/           # CLI drivers (run.py, run_study.py, ...)
-├── experiments/       # YAML spec files
-└── docs/              # Sphinx documentation
+├── scripts/
+│   ├── validate_manifest.py       # F-DATA-PACK.1: manifest schema + hash validator
+│   ├── generate_dataset_readme.py # F-DATA-PACK.2: per-dataset README generator
+│   └── ...                        # other CLI drivers (run.py, run_study.py, ...)
+├── docs/
+│   ├── dataset_provenance.md  # F-DATA-PACK.4: FAIR/coverage provenance document
+│   └── ...                    # Sphinx documentation
+└── experiments/               # YAML spec files
 ```
+
+## Dataset packaging (F-DATA-PACK)
+
+The F-DATA-PACK loop materialises the 24-dataset grid produced by FARM-EXP.13
+as FAIR-compliant, citable research artefacts. Four slices have landed on
+`develop` (lab PRs #48, #49, #50, #51); a fifth (Zenodo deposit, F-DATA-PACK.5)
+is pending:
+
+| Slice | PR | Surface |
+|-------|----|---------|
+| F-DATA-PACK.1 | #48 | `scripts/validate_manifest.py` — schema + content-hash validator wired into CI |
+| F-DATA-PACK.2 | #49 | `scripts/generate_dataset_readme.py` — auto-generates `datasets/<name>/README.md`; 11 cells emitted |
+| F-DATA-PACK.3 | #50 | `dataset_cards/<plm>_card.md` — 8 per-PLM HuggingFace-style dataset cards |
+| F-DATA-PACK.4 | #51 | `docs/dataset_provenance.md` — FAIR checklist, split methodology, PCA fit policy, leakage note |
+| F-DATA-PACK.5 | pending | Zenodo/HuggingFace Hub deposit of the 24-dataset grid |
+
+**Validate a manifest before training:**
+
+```bash
+python scripts/validate_manifest.py --manifest datasets/<name>/manifest.json
+```
+
+**Re-generate a per-dataset README after pulling a new dataset:**
+
+```bash
+python scripts/generate_dataset_readme.py --dataset datasets/<name>
+```
+
+**Provenance and FAIR compliance:** see `docs/dataset_provenance.md` for the full
+data lineage (GOA window, PCA fit policy, leakage-free note, FAIR checklist).
+
+**Architecture decision records:**
+
+- [ADR D34](docs/adr/D34-selective-rerank-resurrection.md): selective rerank policy
+  (LightGBM champion design)
+- [PROTEA ADR D35](https://github.com/frapercan/PROTEA/blob/develop/docs/source/adr/D35-canonical-8plm-embedding-configs.rst):
+  canonical 8-PLM embedding config IDs (embedding_config_id table)
+- [PROTEA ADR D38](https://github.com/frapercan/PROTEA/blob/develop/docs/source/adr/D38-neural-head-deferred-dataset-pack-pivot.rst):
+  neural-head deferral and pivot to F-DATA-PACK; authoritative record for the
+  decision to ship the curated dataset grid over a deep-learning competitor
 
 ## Tests
 
