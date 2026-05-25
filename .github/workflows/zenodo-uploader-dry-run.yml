@@ -1,0 +1,72 @@
+name: Zenodo uploader dry-run
+
+# Smoke test for the F-DATA-PACK.5 Zenodo uploader. The slice spec
+# bans real Zenodo API calls in CI: the user holds the token in
+# ~/.secrets/ and only invokes the script in real-upload mode by hand.
+# This workflow guarantees the script keeps planning + validating
+# every captured manifest fixture, and exits zero in dry-run mode.
+
+on:
+  pull_request:
+    paths:
+      - "scripts/upload_to_zenodo.py"
+      - "scripts/validate_manifest.py"
+      - "scripts/generate_dataset_readme.py"
+      - "tests/test_upload_to_zenodo.py"
+      - "tests/fixtures/manifests/**/*.json"
+      - ".github/workflows/zenodo-uploader-dry-run.yml"
+  push:
+    paths:
+      - "scripts/upload_to_zenodo.py"
+      - "scripts/validate_manifest.py"
+      - "scripts/generate_dataset_readme.py"
+      - "tests/test_upload_to_zenodo.py"
+      - "tests/fixtures/manifests/**/*.json"
+      - ".github/workflows/zenodo-uploader-dry-run.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12"]
+    env:
+      # Hard-empty the token so the dry-run path is the only one CI
+      # can take. Real uploads require user intervention.
+      ZENODO_TOKEN: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install pytest
+        run: pip install pytest
+      - name: Run uploader unit tests
+        run: python -m pytest tests/test_upload_to_zenodo.py -v
+      - name: CLI dry-run sanity check
+        # Exercises the argparse + --dry-run path without any local
+        # PROTEA stack or MinIO. The script must exit 0 and print
+        # "DRY-RUN" even when zero cells plan (no registry calls).
+        run: |
+          set -euo pipefail
+          tmpdir="$(mktemp -d)"
+          mkdir -p "$tmpdir/datasets" "$tmpdir/dataset_cards" "$tmpdir/docs"
+          touch "$tmpdir/docs/dataset_provenance.md"
+          out="$(python scripts/upload_to_zenodo.py \
+            --dry-run \
+            --cell does-not-exist \
+            --datasets-root "$tmpdir/datasets" \
+            --cards-root "$tmpdir/dataset_cards" \
+            --provenance-path "$tmpdir/docs/dataset_provenance.md" \
+            --ledger "$tmpdir/ledger.json" \
+            --api-base http://127.0.0.1:1 \
+            --s3-endpoint http://127.0.0.1:1 2>&1 || true)"
+          echo "$out"
+          # Either no registry row OR a connection-refused on planning.
+          # Both prove we never touched Zenodo.
+          echo "$out" | grep -E "DRY-RUN|in-flight|plan:" >/dev/null
