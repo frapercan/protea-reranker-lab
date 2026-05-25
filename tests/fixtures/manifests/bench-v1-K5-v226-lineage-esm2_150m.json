@@ -1,0 +1,30 @@
+{
+  "schema_version": "v2",
+  "name": "bench-v1-K5-v226-lineage-esm2_150m",
+  "k": 5,
+  "embedding_config_id": "500a0c59-be09-424d-9d51-b7997629c95a",
+  "ontology_snapshot_id": "35c3ad67-3002-47db-8f71-eeed69d22ad6",
+  "annotation_source": "goa",
+  "train_snapshot_pairs": [
+    "v160-v165",
+    "v165-v170",
+    "v170-v175",
+    "v175-v180",
+    "v180-v185",
+    "v185-v190",
+    "v190-v195",
+    "v195-v200",
+    "v200-v205",
+    "v205-v211",
+    "v211-v215",
+    "v215-v220",
+    "v220-v226"
+  ],
+  "eval_snapshot_pair": "v226-v230",
+  "schema_sha": "6d97a624b8a7",
+  "n_train_rows": 25292914,
+  "n_eval_rows": 1113367,
+  "format": "parquet",
+  "producer_version": "0.8.0",
+  "producer_git_sha": "e130642deae502e20f0861f37cc22254e7e7cbe0"
+}

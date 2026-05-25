@@ -1,0 +1,71 @@
+name: Validate dataset manifests
+
+# Wires the F-DATA-PACK.1 manifest validator
+# (scripts/validate_manifest.py). Runs on every PR or push that touches
+# a frozen dataset manifest.json (or the validator / fixtures
+# themselves). The job is the release gate for Zenodo / Hugging Face
+# uploads: it refuses placeholder digests, unknown top-level keys, and
+# schema-version drift away from v2.
+
+on:
+  pull_request:
+    paths:
+      - "scripts/validate_manifest.py"
+      - "tests/test_validate_manifest.py"
+      - "tests/fixtures/manifests/**/*.json"
+      - "datasets/**/manifest.json"
+      - ".github/workflows/validate-manifests.yml"
+  push:
+    paths:
+      - "scripts/validate_manifest.py"
+      - "tests/test_validate_manifest.py"
+      - "tests/fixtures/manifests/**/*.json"
+      - "datasets/**/manifest.json"
+      - ".github/workflows/validate-manifests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install pytest
+        run: pip install pytest
+      - name: Validate fixture corpus
+        run: |
+          set -euo pipefail
+          mapfile -t fixtures < <(find tests/fixtures/manifests -name '*.json' | sort)
+          if [ ${#fixtures[@]} -eq 0 ]; then
+            echo "no fixture manifests found" >&2
+            exit 1
+          fi
+          args=()
+          for f in "${fixtures[@]}"; do
+            args+=(--manifest "$f")
+          done
+          python scripts/validate_manifest.py "${args[@]}"
+      - name: Validate any in-repo dataset manifests
+        run: |
+          set -euo pipefail
+          mapfile -t live < <(find datasets -name 'manifest.json' 2>/dev/null | sort)
+          if [ ${#live[@]} -eq 0 ]; then
+            echo "no in-repo dataset manifests (skip)"
+            exit 0
+          fi
+          args=()
+          for f in "${live[@]}"; do
+            args+=(--manifest "$f")
+          done
+          python scripts/validate_manifest.py "${args[@]}"
+      - name: Run validator unit tests
+        run: python -m pytest tests/test_validate_manifest.py -v
