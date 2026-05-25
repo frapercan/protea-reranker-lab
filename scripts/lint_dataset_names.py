@@ -90,6 +90,13 @@ ALLOWLIST_PATHS: frozenset[str] = frozenset({
     "scripts/lint_dataset_names.py",
     "tests/test_lint_dataset_names.py",
     "CHANGELOG.md",
+    # F-DATA-PACK.2 README generator + tests reference the legacy
+    # ``bench-v1-K5-v226-lineage`` form to exercise the ghost prostt5
+    # alias path (manifest stores the PLM blind name, registry stores
+    # the canonical per PLM form). These are not new untagged references
+    # but documentation of an existing aliasing landmine.
+    "scripts/generate_dataset_readme.py",
+    "tests/test_generate_dataset_readme.py",
 })
 
 
