@@ -1,0 +1,31 @@
+{
+  "description": "Quantifies how far the LAFA eval band (v227->v230) moves the positive label set relative to the bench-v1 grid band (v226->v230). Computed read-only against the PROTEA DB on 2026-06-04.",
+  "annotation_sets": {
+    "v226": "5e1a7285-bb85-4816-88ab-2a32f7e96dd5",
+    "v227": "c905dffa-a5ce-430b-b17b-503e88666adb",
+    "v230": "2394b9a1-21df-4c2b-89af-3da084318fab"
+  },
+  "annotation_pair_counts": {
+    "v226": 5902876,
+    "v227": 5875943,
+    "v230": 4767114
+  },
+  "distinct_proteins": {
+    "v226": 556468,
+    "v227": 556447,
+    "v230": 552967
+  },
+  "newly_true_pairs": {
+    "v226_to_v230": 125026,
+    "v227_to_v230": 79199
+  },
+  "band_shift": {
+    "pairs_dropped_by_moving_t0_226_to_227": 45827,
+    "fraction_of_v226_band_positives_removed": 0.3666,
+    "note": "Pairs that became true between v226 and v227 (Aug->Sep 2025) are label=1 in the bench-v1 eval.parquet but must NOT count as newly-true under the LAFA v227 band. ~37% of the grid's positive labels are outside the LAFA band."
+  },
+  "queries": {
+    "newly_true_v226_to_v230": "SELECT count(*) FROM (SELECT protein_accession, go_term_id FROM protein_go_annotation WHERE annotation_set_id='<v230>' EXCEPT SELECT protein_accession, go_term_id FROM protein_go_annotation WHERE annotation_set_id='<v226>') x;",
+    "newly_true_v227_to_v230": "SELECT count(*) FROM (SELECT protein_accession, go_term_id FROM protein_go_annotation WHERE annotation_set_id='<v230>' EXCEPT SELECT protein_accession, go_term_id FROM protein_go_annotation WHERE annotation_set_id='<v227>') x;"
+  }
+}

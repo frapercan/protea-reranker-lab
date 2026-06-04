@@ -1,0 +1,17 @@
+{
+  "lab_file": "datasets/ia/IA-swissprot-exp-v227.txt",
+  "knn_file": "/home/frapercan/Thesis2/protea-lafa-knn/lafa_t0_Sep_2025/IA.tsv",
+  "lab_terms": 38739,
+  "knn_terms": 39906,
+  "shared_terms": 38650,
+  "only_in_lab": 89,
+  "only_in_knn": 1256,
+  "shared_identical_value": 28386,
+  "shared_diff_gt_1e9": 10264,
+  "max_abs_diff": 14.593216027817205,
+  "mean_abs_diff_all_shared": 0.07741686676682222,
+  "median_abs_diff_nonzero": 0.007005832267293802,
+  "roots_both_zero": true,
+  "authoritative": "lab IA-swissprot-exp-v227.txt",
+  "authoritative_reason": "Same goa v227 SwissProt exp+IC+TAS corpus and same democafa formula in both. They diverge only because each was propagated against a different OBO snapshot (lab releases/2026-01-23 vs knn releases/2025-07-22). The lab file is authoritative for the lab eval grid because its OBO matches datasets/bench-v1-K5/go.obo, the same ontology cafaeval propagates predictions and ground truth against; a mismatched OBO can drive IA negative or drop terms from the universe."
+}
