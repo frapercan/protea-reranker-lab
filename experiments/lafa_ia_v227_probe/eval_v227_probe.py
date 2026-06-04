@@ -273,12 +273,21 @@ def eval_reranker(cell: str) -> dict:
     if not pred_pq.exists():
         print(f"  [skip] {cell} reranker: no predictions.parquet")
         return {}
+    # The trainer's predictions.parquet carries protein_accession/label/score
+    # but NOT go_term_id. Re-stage the eval slice in the same bucket-sort
+    # order (verified byte-identical on protein + label) to recover go_term_id.
     pred_t = pq.read_table(str(pred_pq),
-                           columns=["protein_accession", "go_term_id", "label", "score"])
+                           columns=["protein_accession", "label", "score"])
     proteins = pred_t.column("protein_accession").to_numpy(zero_copy_only=False)
-    gos = pred_t.column("go_term_id").to_numpy(zero_copy_only=False)
     labels = pred_t.column("label").to_numpy(zero_copy_only=False).astype(np.int8)
     scores = pred_t.column("score").to_numpy(zero_copy_only=False).astype(np.float32)
+
+    sl = _eval_slice(cell, [])
+    if not np.array_equal(sl["protein_accession"], proteins):
+        print(f"  [skip] {cell} reranker: eval-slice protein order drifted "
+              f"vs predictions ({len(sl['protein_accession'])} vs {len(proteins)})")
+        return {}
+    gos = sl["go_term_id"]
     return run_cafaeval(cell, "reranker", proteins, gos, scores, labels)
 
 
