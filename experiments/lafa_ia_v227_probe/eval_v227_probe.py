@@ -9,8 +9,9 @@ protocol pinned in ``experiments/lafa_ia_v227_protocol/``:
 
 Two arms per cell:
 
-  * reranker: v26-binary recipe (binary objective, lean+lin+emb,
-    neg_pos_ratio=10), seed 42, trained via ``scripts/run.py``.
+  * reranker: the binary-objective recipe (binary objective,
+    lean+lin+emb, neg_pos_ratio=10), seed 42, trained via
+    ``scripts/run.py``.
   * knn baseline: no training; the prediction score is the raw KNN
     ``neighbor_vote_fraction`` carried in eval.parquet. cafaeval Fmax is
     rank-invariant to a monotone score scale, so the unnormalised vote
@@ -55,7 +56,7 @@ RUNS_ROOT = WORKTREE / "runs" / "lafa_ia_v227_probe"
 OUT_DIR = WORKTREE / "experiments" / "lafa_ia_v227_probe"
 
 LAB_PYTHON = REPO_DIR / ".venv" / "bin" / "python"
-# cafaeval lives in the PROTEA venv (same as the v27 sweep).
+# cafaeval lives in the PROTEA venv (same as the binary-recipe sweep).
 PROTEA_PYTHON = Path("/home/frapercan/Thesis2/repositories/PROTEA/.venv/bin/python")
 
 CELLS = ["nk-mfo", "nk-bpo", "nk-cco", "lk-mfo", "lk-bpo", "lk-cco"]

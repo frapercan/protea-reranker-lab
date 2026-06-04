@@ -12,8 +12,8 @@ norm=cafa, no_orphans, `ia=datasets/ia/IA-swissprot-exp-v227.txt`).
 
 Per (cell, arm) it records four numbers: internal Fmax (lab grid),
 cafaeval Fmax (`f_micro`), wFmax (IA-weighted micro Fmax `f_micro_w`,
-the LAFA headline), and S_min (`s`). Two arms: the v26-binary reranker
-(seed 42) and the KNN baseline (raw `neighbor_vote_fraction` score;
+the LAFA headline), and S_min (`s`). Two arms: the binary-objective
+reranker (seed 42) and the KNN baseline (raw `neighbor_vote_fraction` score;
 cafaeval Fmax is rank-invariant to a monotone score scale).
 
 Run (after the dataset is downloaded into `datasets/<name>/`):

@@ -4,7 +4,7 @@ Dataset `bench-v1-K3-v227-lineage-prostt5` (full re-export, train cutoff
 v227, eval band v227->v230). Eval protocol: prop=fill, norm=cafa,
 no_orphans, `ia=datasets/ia/IA-swissprot-exp-v227.txt`. Headline metric is
 the IA-weighted micro Fmax (wFmax = `f_micro_w`); S_min is `s` (lower is
-better). Two arms per cell: v26-binary reranker (seed 42) vs KNN baseline
+better). Two arms per cell: the binary-objective reranker (seed 42) vs KNN baseline
 (raw `neighbor_vote_fraction`).
 
 ## Numbers (reranker - KNN, the publishable delta)
