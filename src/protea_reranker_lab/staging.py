@@ -53,6 +53,10 @@ class StagedSplit:
     proteins_path: Path
     n_rows: int
     n_groups: int
+    # Row-aligned GO term id per row (same order as ``labels_path``), emitted
+    # only when ``carry_go_terms=True`` so IA sample weighting can map each
+    # row to IA(go). ``None`` for the historical uniform-weight path.
+    go_terms_path: Path | None = None
 
 
 @dataclass
@@ -373,9 +377,16 @@ def _close_writers(writers: list[pq.ParquetWriter]) -> None:
         w.close()
 
 
-def _build_pass1_schema(feature_cols: list[str], categorical_cols: list[str]) -> pa.Schema:
+def _build_pass1_schema(
+    feature_cols: list[str],
+    categorical_cols: list[str],
+    *,
+    carry_go_terms: bool = False,
+) -> pa.Schema:
     fields = [pa.field("protein_accession", pa.string()),
               pa.field("label", pa.int8())]
+    if carry_go_terms:
+        fields.append(pa.field("go_term_id", pa.string()))
     cat_set = set(categorical_cols)
     for c in feature_cols:
         if c in cat_set:
@@ -402,14 +413,18 @@ def _pass1_route_and_write(
     schema: pa.Schema,
     batch_size: int,
     override_labels: np.ndarray | None = None,
+    carry_go_terms: bool = False,
 ) -> tuple[int, int]:
     """Stream filter + cat-encode + bucket-route. Return ``(n_train, n_val)``.
 
     If ``override_labels`` is provided (length matching the cell-filtered row
     count produced by Pass 0), it replaces the source's ``label`` column —
-    used for True-Path-Rule label propagation.
+    used for True-Path-Rule label propagation. ``carry_go_terms`` adds the
+    ``go_term_id`` column so IA sample weighting can map each row to IA(go).
     """
     cols = ["protein_accession", "label", *feature_cols]
+    if carry_go_terms:
+        cols.append("go_term_id")
     cols = _present_columns(parquet_path, cols)
     code_maps = {c: {v: i for i, v in enumerate(cat_codes[c])} for c in categorical_cols}
     cat_set = set(categorical_cols)
@@ -437,6 +452,11 @@ def _pass1_route_and_write(
             continue
 
         accessions = batch.column("protein_accession")
+        go_terms = (
+            batch.column("go_term_id")
+            if carry_go_terms and "go_term_id" in batch.schema.names
+            else None
+        )
 
         feat_arrays: dict[str, np.ndarray] = {}
         for c in feature_cols:
@@ -472,10 +492,16 @@ def _pass1_route_and_write(
                 if not row_mask.any():
                     continue
                 idx = np.flatnonzero(row_mask)
+                idx_arr = pa.array(idx)
                 cols_data: list[pa.Array] = [
-                    accessions.take(pa.array(idx)),
+                    accessions.take(idx_arr),
                     pa.array(labels[idx], type=pa.int8()),
                 ]
+                if carry_go_terms:
+                    cols_data.append(
+                        go_terms.take(idx_arr) if go_terms is not None
+                        else pa.array([None] * len(idx), type=pa.string())
+                    )
                 for c in feature_cols:
                     a = feat_arrays[c][idx]
                     if c in cat_set:
@@ -491,27 +517,40 @@ def _pass1_route_and_write(
     return n_train, n_val
 
 
-def _sort_bucket(path: Path) -> tuple[int, int, np.ndarray, np.ndarray, np.ndarray]:
+_RESERVED_BUCKET_COLS = ("protein_accession", "label", "go_term_id")
+
+
+def _sort_bucket(
+    path: Path,
+) -> tuple[int, int, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None]:
     """Read one bucket parquet, sort by protein_accession, write back.
 
-    Returns ``(n_rows, n_groups, group_sizes, labels, proteins_per_group)``.
+    Returns ``(n_rows, n_groups, group_sizes, labels, proteins_per_group,
+    go_terms_or_None)``. ``go_terms`` is row-aligned with ``labels`` and is
+    ``None`` unless the bucket carried the ``go_term_id`` column.
     """
     table = pq.read_table(str(path))
     if table.num_rows == 0:
         path.unlink(missing_ok=True)
-        return 0, 0, np.empty(0, np.int32), np.empty(0, np.int8), np.empty(0, dtype=object)
+        return (
+            0, 0, np.empty(0, np.int32), np.empty(0, np.int8),
+            np.empty(0, dtype=object), None,
+        )
     indices = pc.sort_indices(table, sort_keys=[("protein_accession", "ascending")])
     sorted_table = table.take(indices)
-    feature_cols = [c for c in sorted_table.column_names if c not in ("protein_accession", "label")]
+    feature_cols = [c for c in sorted_table.column_names if c not in _RESERVED_BUCKET_COLS]
     feat_table = sorted_table.select(feature_cols)
     pq.write_table(feat_table, str(path), compression="zstd")
 
     proteins = sorted_table.column("protein_accession").to_numpy(zero_copy_only=False)
     labels = sorted_table.column("label").to_numpy(zero_copy_only=False).astype(np.int8, copy=False)
+    go_terms = None
+    if "go_term_id" in sorted_table.column_names:
+        go_terms = sorted_table.column("go_term_id").to_numpy(zero_copy_only=False)
     edges = np.flatnonzero(np.concatenate(([True], proteins[1:] != proteins[:-1])))
     group_sizes = np.diff(np.concatenate((edges, [len(proteins)]))).astype(np.int32)
     proteins_per_group = proteins[edges]
-    return len(proteins), len(group_sizes), group_sizes, labels, proteins_per_group
+    return len(proteins), len(group_sizes), group_sizes, labels, proteins_per_group, go_terms
 
 
 def _materialise_split(
@@ -529,12 +568,14 @@ def _materialise_split(
     all_groups: list[np.ndarray] = []
     all_labels: list[np.ndarray] = []
     all_proteins: list[np.ndarray] = []
+    all_go_terms: list[np.ndarray] = []
+    have_go_terms = True
 
     for b in range(bucket_count):
         src = bucket_dir / f"{name}_bucket_{b:02d}.parquet"
         if not src.exists():
             continue
-        n, ng, sizes, labels, proteins = _sort_bucket(src)
+        n, ng, sizes, labels, proteins, go_terms = _sort_bucket(src)
         if n == 0:
             continue
         dest = out_dir / f"bucket_{b:02d}.parquet"
@@ -543,14 +584,37 @@ def _materialise_split(
         all_groups.append(sizes)
         all_labels.append(labels)
         all_proteins.append(proteins)
+        if go_terms is None:
+            have_go_terms = False
+        else:
+            all_go_terms.append(go_terms)
 
     if not bucket_paths_final:
         return None
 
-    groups = np.concatenate(all_groups)
-    labels = np.concatenate(all_labels)
-    proteins = np.concatenate(all_proteins)
+    go_terms = (
+        np.concatenate(all_go_terms) if have_go_terms and all_go_terms else None
+    )
+    return _save_split_arrays(
+        out_dir=out_dir,
+        bucket_paths=bucket_paths_final,
+        groups=np.concatenate(all_groups),
+        labels=np.concatenate(all_labels),
+        proteins=np.concatenate(all_proteins),
+        go_terms=go_terms,
+    )
 
+
+def _save_split_arrays(
+    *,
+    out_dir: Path,
+    bucket_paths: list[Path],
+    groups: np.ndarray,
+    labels: np.ndarray,
+    proteins: np.ndarray,
+    go_terms: np.ndarray | None,
+) -> StagedSplit:
+    """Persist the row-aligned npy arrays and return the StagedSplit."""
     labels_path = out_dir / "labels.npy"
     groups_path = out_dir / "groups.npy"
     proteins_path = out_dir / "proteins.npy"
@@ -558,13 +622,19 @@ def _materialise_split(
     np.save(groups_path, groups)
     np.save(proteins_path, proteins)
 
+    go_terms_path: Path | None = None
+    if go_terms is not None:
+        go_terms_path = out_dir / "go_terms.npy"
+        np.save(go_terms_path, go_terms)
+
     return StagedSplit(
-        bucket_paths=bucket_paths_final,
+        bucket_paths=bucket_paths,
         labels_path=labels_path,
         groups_path=groups_path,
         proteins_path=proteins_path,
         n_rows=int(labels.size),
         n_groups=int(groups.size),
+        go_terms_path=go_terms_path,
     )
 
 
@@ -654,12 +724,18 @@ def stage_for_training(
     bucket_count: int = 32,
     batch_size: int = 200_000,
     parent_map_path: Path | str | None = None,
+    carry_go_terms: bool = False,
 ) -> StageResult:
     cat, asp = cell[0].lower(), cell[1].lower()
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    schema = _build_pass1_schema(feature_cols, categorical_cols)
+    # The eval split never carries go_term_id (IA weights apply to training
+    # only), so train/val and eval use distinct schemas.
+    eval_schema = _build_pass1_schema(feature_cols, categorical_cols)
+    train_schema = _build_pass1_schema(
+        feature_cols, categorical_cols, carry_go_terms=carry_go_terms
+    )
     numeric_cols = [c for c in feature_cols if c not in set(categorical_cols)]
 
     propagate = parent_map_path is not None
@@ -705,9 +781,9 @@ def stage_for_training(
 
     with tempfile.TemporaryDirectory(prefix="staging_buckets_", dir=out_dir) as tmp:
         tmp_dir = Path(tmp)
-        train_writers = _open_bucket_writers(tmp_dir, schema, bucket_count, "train")
+        train_writers = _open_bucket_writers(tmp_dir, train_schema, bucket_count, "train")
         val_writers = (
-            _open_bucket_writers(tmp_dir, schema, bucket_count, "val")
+            _open_bucket_writers(tmp_dir, train_schema, bucket_count, "val")
             if val_strategy != "none" else None
         )
 
@@ -722,9 +798,10 @@ def stage_for_training(
             bucket_count=bucket_count,
             train_writers=train_writers,
             val_writers=val_writers,
-            schema=schema,
+            schema=train_schema,
             batch_size=batch_size,
             override_labels=labels0 if propagate else None,
+            carry_go_terms=carry_go_terms,
         )
 
         train_split = _materialise_split(
@@ -744,7 +821,7 @@ def stage_for_training(
                 name="val",
             )
 
-        eval_writers = _open_bucket_writers(tmp_dir, schema, bucket_count, "eval")
+        eval_writers = _open_bucket_writers(tmp_dir, eval_schema, bucket_count, "eval")
         eval_override_labels = None
         if propagate:
             parent_map_local = load_parent_map(parent_map_path)
@@ -775,7 +852,7 @@ def stage_for_training(
             cat_codes=cat_codes,
             bucket_count=bucket_count,
             writers=eval_writers,
-            schema=schema,
+            schema=eval_schema,
             batch_size=batch_size,
             override_labels=eval_override_labels,
         )

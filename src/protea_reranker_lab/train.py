@@ -49,6 +49,13 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--output-dir", "--output_dir", dest="output_dir", default=None)
     p.add_argument("--save-model", "--save_model", dest="save_model", default=None)
     p.add_argument("--keep-staging", "--keep_staging", dest="keep_staging", action="store_true")
+    p.add_argument("--ia-weighting", "--ia_weighting", dest="ia_weighting",
+                   default="none", choices=["none", "positives", "all"],
+                   help="Palanca 1: IA sample weighting mode (default none).")
+    p.add_argument("--ia-path", "--ia_path", dest="ia_path", default=None,
+                   help="IA table path (default datasets/ia/IA-swissprot-exp-v227.txt).")
+    p.add_argument("--ia-scale", "--ia_scale", dest="ia_scale", type=float, default=1.0,
+                   help="IA weight scale: weight = 1 + ia_scale * IA(go).")
     args, _ = p.parse_known_args(argv)
     return args
 
@@ -76,6 +83,9 @@ def _build_spec(args: argparse.Namespace) -> ExperimentSpec:
         "neg_pos_ratio": args.neg_pos_ratio,
         "val_fraction": args.val_fraction,
         "drop_features": drop_features,
+        "ia_weighting": args.ia_weighting,
+        "ia_path": args.ia_path,
+        "ia_scale": args.ia_scale,
     }
     return ExperimentSpec(
         name=args.run_name or f"{args.cell}_{args.objective}",

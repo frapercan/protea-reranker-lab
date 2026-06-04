@@ -36,6 +36,11 @@ class TrainConfig:
     seed: int = 42
     enabled_feature_families: list[str] | None = None
     drop_features: list[str] = field(default_factory=list)
+    # Palanca 1: Information-Accretion sample weighting. ``none`` keeps the
+    # historical uniform-weight behaviour (the v26/v27-binary champion).
+    ia_weighting: str = "none"
+    ia_path: str | None = None
+    ia_scale: float = 1.0
 
     def selected_features(self) -> list[str]:
         if self.enabled_feature_families is None:
@@ -65,6 +70,8 @@ def fit(
     *,
     feature_names: list[str],
     categorical_features: list[str],
+    train_weights: np.ndarray | None = None,
+    val_weights: np.ndarray | None = None,
 ) -> tuple[lgb.Booster, dict[str, Any]]:
     params: dict[str, Any] = {
         "objective": cfg.objective,
@@ -87,6 +94,7 @@ def fit(
         train_seq_list,
         label=train_labels,
         group=train_groups if cfg.objective == "lambdarank" else None,
+        weight=train_weights,
         feature_name=feature_names,
         categorical_feature=categorical_features or "auto",
         free_raw_data=True,
@@ -100,6 +108,7 @@ def fit(
             val_seq_list,
             label=val_labels,
             group=val_groups if cfg.objective == "lambdarank" else None,
+            weight=val_weights,
             feature_name=feature_names,
             categorical_feature=categorical_features or "auto",
             reference=train_ds,

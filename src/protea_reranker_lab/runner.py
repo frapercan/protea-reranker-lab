@@ -42,6 +42,7 @@ from protea_contracts import (
 )
 from .evaluate import fmax_per_protein_group
 from .experiment import ExperimentSpec, ModelSpec, TrainingSpec
+from .ia_weighting import ia_weights, load_ia_table
 from .reranker import (
     TrainConfig,
     fit,
@@ -148,6 +149,7 @@ def run_experiment(
                     f"propagate_labels=True but {parent_map_path} not found. "
                     f"Run scripts/export_parent_map.py with the PROTEA venv first."
                 )
+        ia_enabled = cfg.ia_weighting != "none"
         stage = stage_for_training(
             source_train_parquet=ds_dir / "train.parquet",
             source_eval_parquet=ds_dir / "eval.parquet",
@@ -161,6 +163,7 @@ def run_experiment(
             neg_pos_ratio=cfg.neg_pos_ratio,
             seed=cfg.seed,
             parent_map_path=parent_map_path,
+            carry_go_terms=ia_enabled,
         )
 
         report["split"] = _split_info(spec, stage)
@@ -185,12 +188,18 @@ def run_experiment(
             val_labels = np.load(stage.val.labels_path)
             val_groups = np.load(stage.val.groups_path)
 
+        train_weights, val_weights = _build_ia_weights(
+            cfg, ds_dir, stage, train_labels, val_labels, report,
+        )
+
         booster, train_metrics = fit(
             train_seq, train_labels, train_groups,
             val_seq, val_labels, val_groups,
             cfg,
             feature_names=feature_cols,
             categorical_features=categorical_cols,
+            train_weights=train_weights,
+            val_weights=val_weights,
         )
         booster.save_model(str(out_dir / "model.txt"))
 
@@ -360,6 +369,66 @@ def _build_train_config(spec: ExperimentSpec) -> TrainConfig:
         defaults["neg_pos_ratio"] = spec.training.neg_pos_ratio
     allowed = set(TrainConfig.__dataclass_fields__)
     return TrainConfig(**{k: v for k, v in defaults.items() if k in allowed})
+
+
+def _resolve_ia_path(cfg: TrainConfig, ds_dir: Path) -> Path:
+    """Resolve the IA table path, defaulting to the tracked v227 table."""
+    if cfg.ia_path:
+        return Path(cfg.ia_path)
+    repo_root = Path(__file__).resolve().parents[2]
+    return repo_root / "datasets" / "ia" / "IA-swissprot-exp-v227.txt"
+
+
+def _build_ia_weights(
+    cfg: TrainConfig,
+    ds_dir: Path,
+    stage: StageResult,
+    train_labels: np.ndarray,
+    val_labels: np.ndarray | None,
+    report: dict[str, Any],
+) -> tuple[np.ndarray | None, np.ndarray | None]:
+    """Palanca 1: per-row IA sample weights for the train/val splits.
+
+    Returns ``(None, None)`` when ``ia_weighting`` is ``none`` so the
+    historical uniform-weight path is byte-for-byte unchanged.
+    """
+    if cfg.ia_weighting == "none":
+        return None, None
+
+    if stage.train.go_terms_path is None:
+        raise RuntimeError(
+            "ia_weighting requested but staging did not emit go_terms.npy; "
+            "the source dump is missing the go_term_id column."
+        )
+
+    ia_path = _resolve_ia_path(cfg, ds_dir)
+    ia_table = load_ia_table(ia_path)
+    train_go = np.load(stage.train.go_terms_path, allow_pickle=True)
+    train_w = ia_weights(
+        train_go, train_labels, ia_table,
+        mode=cfg.ia_weighting, scale=cfg.ia_scale,
+    )
+
+    val_w = None
+    if val_labels is not None and stage.val is not None and stage.val.go_terms_path:
+        val_go = np.load(stage.val.go_terms_path, allow_pickle=True)
+        val_w = ia_weights(
+            val_go, val_labels, ia_table,
+            mode=cfg.ia_weighting, scale=cfg.ia_scale,
+        )
+
+    report["ia_weighting"] = {
+        "mode": cfg.ia_weighting,
+        "ia_path": str(ia_path),
+        "ia_scale": cfg.ia_scale,
+        "ia_terms_loaded": len(ia_table),
+        "train_weight_mean": float(train_w.mean()) if train_w is not None else None,
+        "train_weight_max": float(train_w.max()) if train_w is not None else None,
+        "train_rows_weighted_gt1": (
+            int((train_w > 1.0).sum()) if train_w is not None else None
+        ),
+    }
+    return train_w, val_w
 
 
 def _write_predictions(
