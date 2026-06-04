@@ -2,7 +2,7 @@
 
 Maps each training row's GO term to an Information Accretion value
 ``IA(go)`` (Clark and Radivojac 2013) and turns it into a LightGBM sample
-weight. The honest hypothesis (see ``docs/source/lafa_ia_metrics.rst`` and
+weight. The honest hypothesis (see ``docs/source/metrics.rst`` and
 ``docs/source/adr/D40-ia-aligned-training.rst``) is that aligning the loss
 with IA lifts the IA-weighted metric (wFmax / S_min) in the informative
 region that propagation cannot fake.

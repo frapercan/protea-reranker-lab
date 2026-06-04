@@ -434,8 +434,129 @@ Internal Fmax is computed without propagation on the raw candidate rows.
 The cafaeval Fmax uses ``prop="fill"``, ``norm="cafa"``, no IA weighting.
 wFmax and S_min use the same cafaeval call with
 ``ia="datasets/ia/IA-swissprot-exp-v227.txt"`` (IA provenance: see
-:ref:`metrics-ia-provenance`). Cells labelled *TBD* will be filled once
-the re-evaluation results are written to ``runs/``.
+:ref:`metrics-ia-provenance`). The *TBD* wFmax / S_min cells above are the
+prostt5 / K3 pilot arm, whose KNN baseline survives only as a hardcoded
+Fmax constant (not as predictions) and is therefore not IA-re-evaluable;
+the realised IA-weighted numbers below come from the one seed42 run set
+that kept both arms' predictions on disk (``study_v26_binary``).
+
+.. _metrics-ia-reeval:
+
+IA-weighted re-evaluation results (F-LAFA-IA.0)
+-----------------------------------------------
+
+The IA-weighted metrics for the v26-binary champion study were produced
+by re-running cafaeval with ``ia=`` over the existing seed42 predictions
+(no training). The reproducible source of truth is the stored predictions,
+not the stale ``runs/study_v26_binary/cafaeval/results.csv`` (its lk-mfo
+rows disagree with the ``_raw_metrics.json`` actually emitted; lk-bpo and
+lk-cco match). Dataset ``bench-v1-K5-v226-binary``; internal Fmax is
+retained only for the reranker arm.
+
+.. list-table::
+   :header-rows: 1
+
+   * - cell
+     - arm
+     - internal Fmax
+     - cafaeval Fmax
+     - wFmax
+     - S_min
+     - S_min (IA-w)
+   * - lk-bpo
+     - reranker
+     - 0.0466
+     - 0.6639
+     - 0.6630
+     - 7.057
+     - 7.750
+   * - lk-bpo
+     - knn-baseline
+     - n/a
+     - 0.5844
+     - 0.5844
+     - 11.310
+     - 11.499
+   * - lk-mfo
+     - reranker
+     - 0.1551
+     - 0.8616
+     - 0.8231
+     - 3.167
+     - 1.546
+   * - lk-mfo
+     - knn-baseline
+     - n/a
+     - 0.7901
+     - 0.7901
+     - 5.380
+     - 4.322
+   * - lk-cco
+     - reranker
+     - 0.1224
+     - 0.7948
+     - 0.7933
+     - 2.899
+     - 2.904
+   * - lk-cco
+     - knn-baseline
+     - n/a
+     - 0.7053
+     - 0.7053
+     - 4.637
+     - 3.936
+
+Reranker minus KNN baseline is the publishable delta. S_min is a distance,
+so a negative delta means the reranker is better.
+
+.. list-table::
+   :header-rows: 1
+
+   * - cell
+     - d cafaeval Fmax
+     - d wFmax
+     - d S_min
+     - d S_min (IA-w)
+   * - lk-bpo
+     - +0.0794
+     - +0.0785
+     - -4.252
+     - -3.749
+   * - lk-mfo
+     - +0.0716
+     - +0.0331
+     - -2.213
+     - -2.776
+   * - lk-cco
+     - +0.0895
+     - +0.0880
+     - -1.738
+     - -1.032
+
+The reranker beats the KNN baseline on every metric and every cell: wFmax
+up on all three, S_min (unweighted and IA-weighted) improved (lower) on all
+three. wFmax tracks unweighted Fmax closely because cafa normalisation
+already divides by the per-protein term universe; the IA weighting moves
+S_min more than it moves Fmax. The publishable claim for chapter 6 is this
+positive delta over the KNN baseline on the weighted metrics, not the
+absolute propagated Fmax.
+
+The ground truth is restricted to candidates, so all Fmax numbers are
+optimistic relative to a full-pipeline CAFA submission. The honest delta
+over KNN is robust to this because both arms share the same candidate set.
+
+**Reproduction.**
+
+.. code-block:: bash
+
+   CAFA=~/Thesis2/repositories/cafaeval-protea
+   PYTHONPATH="$CAFA/src" .venv/bin/python \
+       experiments/lafa_ia/reeval_ia_baseline.py
+
+Outputs ``runs/lafa_ia/reeval_ia_baseline.json`` and
+``runs/lafa_ia/SUMMARY.md`` (gitignored artefacts). cafaeval is imported
+from the source tree because the original sweeps' PROTEA poetry venv no
+longer exists.
 
 .. _metrics-references:
 
