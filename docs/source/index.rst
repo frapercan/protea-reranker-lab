@@ -11,6 +11,7 @@ schema.
    :caption: Contents
 
    overview
+   metrics
    reference/index
 
 Indices and tables
