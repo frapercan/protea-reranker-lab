@@ -1,0 +1,17 @@
+{
+  "run_tag": "phase3a_K3_ankh_base",
+  "k": "K3",
+  "plm": "ankh_base",
+  "cell": "lk-cco",
+  "seed": 42,
+  "selection_metric": "f_micro_w",
+  "val_split": "v226-v227",
+  "cafaeval_fmax": 0.7971864009378663,
+  "f_micro_w": 0.6974376323584244,
+  "s_min": 2.3159516863040075,
+  "n_rows_227val": 3008,
+  "n_positives_227val": 175,
+  "n_proteins_covered": 181,
+  "n_proteins_total_227val": 185,
+  "coverage_pct": 97.8
+}

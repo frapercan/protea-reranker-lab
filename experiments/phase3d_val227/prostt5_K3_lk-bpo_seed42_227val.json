@@ -1,0 +1,17 @@
+{
+  "run_tag": "phase3a_K3_prostt5",
+  "k": "K3",
+  "plm": "prostt5",
+  "cell": "lk-bpo",
+  "seed": 42,
+  "selection_metric": "f_micro_w",
+  "val_split": "v226-v227",
+  "cafaeval_fmax": 0.6215538847117795,
+  "f_micro_w": 0.587065779346392,
+  "s_min": 8.231088738905985,
+  "n_rows_227val": 7993,
+  "n_positives_227val": 55,
+  "n_proteins_covered": 124,
+  "n_proteins_total_227val": 313,
+  "coverage_pct": 39.6
+}

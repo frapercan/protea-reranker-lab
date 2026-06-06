@@ -1,0 +1,17 @@
+{
+  "run_tag": "phase3a_K10_esm2_150m",
+  "k": "K10",
+  "plm": "esm2_150m",
+  "cell": "nk-cco",
+  "seed": 42,
+  "selection_metric": "f_micro_w",
+  "val_split": "v226-v227",
+  "cafaeval_fmax": 0.7313984168865435,
+  "f_micro_w": 0.6300676404228936,
+  "s_min": 2.6256702001584284,
+  "n_rows_227val": 4862,
+  "n_positives_227val": 151,
+  "n_proteins_covered": 161,
+  "n_proteins_total_227val": 168,
+  "coverage_pct": 95.8
+}

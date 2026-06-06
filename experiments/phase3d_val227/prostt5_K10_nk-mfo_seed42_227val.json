@@ -1,0 +1,17 @@
+{
+  "run_tag": "phase3a_K10_prostt5",
+  "k": "K10",
+  "plm": "prostt5",
+  "cell": "nk-mfo",
+  "seed": 42,
+  "selection_metric": "f_micro_w",
+  "val_split": "v226-v227",
+  "cafaeval_fmax": 0.6485568760611207,
+  "f_micro_w": 0.6325269686541375,
+  "s_min": 2.713182142931105,
+  "n_rows_227val": 7176,
+  "n_positives_227val": 245,
+  "n_proteins_covered": 243,
+  "n_proteins_total_227val": 251,
+  "coverage_pct": 96.8
+}

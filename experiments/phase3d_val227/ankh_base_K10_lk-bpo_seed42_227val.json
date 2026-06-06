@@ -1,0 +1,17 @@
+{
+  "run_tag": "phase3a_K10_ankh_base",
+  "k": "K10",
+  "plm": "ankh_base",
+  "cell": "lk-bpo",
+  "seed": 42,
+  "selection_metric": "f_micro_w",
+  "val_split": "v226-v227",
+  "cafaeval_fmax": 0.6381756756756756,
+  "f_micro_w": 0.6091144266490052,
+  "s_min": 7.301600332904803,
+  "n_rows_227val": 27000,
+  "n_positives_227val": 237,
+  "n_proteins_covered": 307,
+  "n_proteins_total_227val": 313,
+  "coverage_pct": 98.1
+}
