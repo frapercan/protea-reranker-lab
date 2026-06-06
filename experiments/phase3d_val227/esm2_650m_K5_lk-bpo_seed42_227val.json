@@ -1,0 +1,17 @@
+{
+  "run_tag": "phase3a_K5_esm2_650m",
+  "k": "K5",
+  "plm": "esm2_650m",
+  "cell": "lk-bpo",
+  "seed": 42,
+  "selection_metric": "f_micro_w",
+  "val_split": "v226-v227",
+  "cafaeval_fmax": 0.6817649355720422,
+  "f_micro_w": 0.6458189329900207,
+  "s_min": 6.39757186258673,
+  "n_rows_227val": 18086,
+  "n_positives_227val": 211,
+  "n_proteins_covered": 307,
+  "n_proteins_total_227val": 313,
+  "coverage_pct": 98.1
+}

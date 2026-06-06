@@ -1,0 +1,17 @@
+{
+  "run_tag": "phase3a_K5_ankh_base",
+  "k": "K5",
+  "plm": "ankh_base",
+  "cell": "lk-mfo",
+  "seed": 42,
+  "selection_metric": "f_micro_w",
+  "val_split": "v226-v227",
+  "cafaeval_fmax": 0.5892857142857144,
+  "f_micro_w": 0.5239606395415902,
+  "s_min": 2.3200749845391417,
+  "n_rows_227val": 2361,
+  "n_positives_227val": 51,
+  "n_proteins_covered": 90,
+  "n_proteins_total_227val": 186,
+  "coverage_pct": 48.4
+}

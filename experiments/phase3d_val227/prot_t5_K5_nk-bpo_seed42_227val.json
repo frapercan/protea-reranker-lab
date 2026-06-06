@@ -1,0 +1,17 @@
+{
+  "run_tag": "phase3a_K5_prot_t5",
+  "k": "K5",
+  "plm": "prot_t5",
+  "cell": "nk-bpo",
+  "seed": 42,
+  "selection_metric": "f_micro_w",
+  "val_split": "v226-v227",
+  "cafaeval_fmax": 0.5648545003383714,
+  "f_micro_w": 0.5244610490171178,
+  "s_min": 9.076002022635118,
+  "n_rows_227val": 18712,
+  "n_positives_227val": 181,
+  "n_proteins_covered": 354,
+  "n_proteins_total_227val": 362,
+  "coverage_pct": 97.8
+}
