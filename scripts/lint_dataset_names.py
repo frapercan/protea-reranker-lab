@@ -97,6 +97,11 @@ ALLOWLIST_PATHS: frozenset[str] = frozenset({
     # but documentation of an existing aliasing landmine.
     "scripts/generate_dataset_readme.py",
     "tests/test_generate_dataset_readme.py",
+    # F-LAFA-IA.2 palanca-1 probe trains on the real on-disk legacy study
+    # dataset ``bench-v1-K5-v226-lineage`` (the v26-binary champion's source,
+    # PLM-blind blind name), not a new untagged reference. Same landmine the
+    # README generator documents.
+    "experiments/lafa_ia_palanca1/probe_lk_bpo.py",
 })
 
 

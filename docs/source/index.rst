@@ -12,6 +12,7 @@ schema.
 
    overview
    metrics
+   ia_aligned_training
    reference/index
 
 Indices and tables
