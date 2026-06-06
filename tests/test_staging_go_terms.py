@@ -14,7 +14,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from protea_reranker_lab.staging import stage_for_training
+from protea_reranker_lab.staging import StagePlan, stage_for_training
 
 
 def _write_synthetic(path, *, n_proteins=12, k=4, seed=0):
@@ -59,12 +59,14 @@ def _stage(ds_dir, out_dir, *, carry):
         feature_cols=["knn_vote_score"],
         categorical_cols=[],
         out_dir=out_dir,
-        val_strategy="protein_group",
-        val_fraction=0.25,
-        val_holdout_snapshot=None,
-        neg_pos_ratio=None,
-        seed=42,
-        carry_go_terms=carry,
+        plan=StagePlan(
+            val_strategy="protein_group",
+            val_fraction=0.25,
+            val_holdout_snapshot=None,
+            neg_pos_ratio=None,
+            seed=42,
+            carry_go_terms=carry,
+        ),
     )
 
 

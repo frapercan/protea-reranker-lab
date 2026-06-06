@@ -44,13 +44,14 @@ from .evaluate import fmax_per_protein_group
 from .experiment import ExperimentSpec, ModelSpec, TrainingSpec
 from .ia_weighting import ia_weights, load_ia_table
 from .reranker import (
+    SplitArrays,
     TrainConfig,
     fit,
     predict_streaming,
 )
 from .schemas import ManifestV1
 from .sequences import ParquetFeatureSequence
-from .staging import StageResult, stage_for_training
+from .staging import StagePlan, StageResult, stage_for_training
 
 
 _TRAINING_FIELDS: frozenset[str] = frozenset({
@@ -130,116 +131,30 @@ def run_experiment(
         report["dataset"] = _dataset_lineage(spec, manifest_path)
         _dump_report(out_dir, report)
 
-        cat, asp = _split_cell(spec.training.cell)
-        ds_dir = manifest_path.parent
-        cfg = _build_train_config(spec)
-        report["resolved_hparams"] = dataclasses.asdict(cfg)
-        report["features"] = _features_info(spec, cfg)
-        _dump_report(out_dir, report)
-
-        numeric_cols = [c for c in cfg.selected_features() if c in set(NUMERIC_FEATURES)]
-        categorical_cols = [c for c in cfg.selected_features() if c in set(CATEGORICAL_FEATURES)]
-        feature_cols = numeric_cols + categorical_cols
-
-        parent_map_path = None
-        if spec.training.propagate_labels:
-            parent_map_path = ds_dir / "parent_map.json"
-            if not parent_map_path.exists():
-                raise FileNotFoundError(
-                    f"propagate_labels=True but {parent_map_path} not found. "
-                    f"Run scripts/export_parent_map.py with the PROTEA venv first."
-                )
-        ia_enabled = cfg.ia_weighting != "none"
-        stage = stage_for_training(
-            source_train_parquet=ds_dir / "train.parquet",
-            source_eval_parquet=ds_dir / "eval.parquet",
-            cell=(cat, asp),
-            feature_cols=feature_cols,
-            categorical_cols=categorical_cols,
-            out_dir=staging_root / f"{cat}-{asp}",
-            val_strategy=spec.training.val_strategy,
-            val_fraction=cfg.val_fraction,
-            val_holdout_snapshot=spec.training.val_holdout_snapshot,
-            neg_pos_ratio=cfg.neg_pos_ratio,
-            seed=cfg.seed,
-            parent_map_path=parent_map_path,
-            carry_go_terms=ia_enabled,
+        cfg, feature_cols, categorical_cols, stage, ds_dir = _prepare_stage(
+            spec, manifest_path, staging_root, out_dir, report,
         )
 
-        report["split"] = _split_info(spec, stage)
-        _dump_report(out_dir, report)
         if wandb_run is not None:
             wandb_run.config.update(
                 {"resolved_hparams": report["resolved_hparams"], **report["split"]},
                 allow_val_change=True,
             )
 
-        train_seq = ParquetFeatureSequence(
-            [str(p) for p in stage.train.bucket_paths], feature_cols,
+        _train_predict_report(
+            cfg=cfg,
+            stage=stage,
+            ds_dir=ds_dir,
+            ctx=_RunContext(
+                out_dir=out_dir,
+                run_id=run_id,
+                spec=spec,
+                feature_cols=feature_cols,
+                categorical_cols=categorical_cols,
+                report=report,
+                wandb_run=wandb_run,
+            ),
         )
-        train_labels = np.load(stage.train.labels_path)
-        train_groups = np.load(stage.train.groups_path)
-
-        val_seq = val_labels = val_groups = None
-        if stage.val is not None and stage.val.n_rows > 0:
-            val_seq = ParquetFeatureSequence(
-                [str(p) for p in stage.val.bucket_paths], feature_cols,
-            )
-            val_labels = np.load(stage.val.labels_path)
-            val_groups = np.load(stage.val.groups_path)
-
-        train_weights, val_weights = _build_ia_weights(
-            cfg, ds_dir, stage, train_labels, val_labels, report,
-        )
-
-        booster, train_metrics = fit(
-            train_seq, train_labels, train_groups,
-            val_seq, val_labels, val_groups,
-            cfg,
-            feature_names=feature_cols,
-            categorical_features=categorical_cols,
-            train_weights=train_weights,
-            val_weights=val_weights,
-        )
-        booster.save_model(str(out_dir / "model.txt"))
-
-        eval_seq = ParquetFeatureSequence(
-            [str(p) for p in stage.eval.bucket_paths], feature_cols,
-        )
-        eval_labels = np.load(stage.eval.labels_path)
-        eval_groups = np.load(stage.eval.groups_path)
-        eval_proteins = np.load(stage.eval.proteins_path, allow_pickle=True)
-
-        scores = predict_streaming(booster, eval_seq)
-        fmax = fmax_per_protein_group(scores, eval_labels, eval_groups)
-        _write_predictions(
-            out_dir / "predictions.parquet",
-            scores=scores, labels=eval_labels,
-            groups=eval_groups, proteins_per_group=eval_proteins,
-        )
-
-        report["metrics"] = {
-            "test_fmax": float(fmax),
-            "best_iteration": int(train_metrics["best_iteration"]),
-        }
-        report["feature_importance"] = {k: float(v) for k, v in sorted(
-            train_metrics["feature_importance"].items(), key=lambda kv: -kv[1]
-        )}
-        report["status"] = "ok"
-
-        # LM.1 champion candidate hook (appends to champions.candidates.md).
-        _maybe_append_champion_candidate(
-            spec.training.cell, float(fmax), run_id, out_dir
-        )
-
-        if wandb_run is not None:
-            wandb_run.log({
-                "test_fmax": float(fmax),
-                "best_iteration": int(train_metrics["best_iteration"]),
-            })
-            wandb_run.summary["test_fmax"] = float(fmax)
-            wandb_run.summary["best_iteration"] = int(train_metrics["best_iteration"])
-            wandb_run.save(str(out_dir / "run.json"))
 
         if not spec.keep_staging:
             shutil.rmtree(staging_root, ignore_errors=True)
@@ -255,6 +170,173 @@ def run_experiment(
             wandb_run.finish(exit_code=0 if report["status"] == "ok" else 1)
 
     return report
+
+
+def _prepare_stage(
+    spec: ExperimentSpec,
+    manifest_path: Path,
+    staging_root: Path,
+    out_dir: Path,
+    report: dict[str, Any],
+) -> tuple[TrainConfig, list[str], list[str], StageResult, Path]:
+    """Resolve config + feature columns, then stage train/val/eval splits.
+
+    Mutates ``report`` with resolved hparams, features and split info and
+    flushes it to disk. Returns ``(cfg, feature_cols, categorical_cols,
+    stage, ds_dir)``.
+    """
+    cat, asp = _split_cell(spec.training.cell)
+    ds_dir = manifest_path.parent
+    cfg = _build_train_config(spec)
+    report["resolved_hparams"] = dataclasses.asdict(cfg)
+    report["features"] = _features_info(spec, cfg)
+    _dump_report(out_dir, report)
+
+    numeric_cols = [c for c in cfg.selected_features() if c in set(NUMERIC_FEATURES)]
+    categorical_cols = [c for c in cfg.selected_features() if c in set(CATEGORICAL_FEATURES)]
+    feature_cols = numeric_cols + categorical_cols
+
+    parent_map_path = None
+    if spec.training.propagate_labels:
+        parent_map_path = ds_dir / "parent_map.json"
+        if not parent_map_path.exists():
+            raise FileNotFoundError(
+                f"propagate_labels=True but {parent_map_path} not found. "
+                f"Run scripts/export_parent_map.py with the PROTEA venv first."
+            )
+    stage = stage_for_training(
+        source_train_parquet=ds_dir / "train.parquet",
+        source_eval_parquet=ds_dir / "eval.parquet",
+        cell=(cat, asp),
+        feature_cols=feature_cols,
+        categorical_cols=categorical_cols,
+        out_dir=staging_root / f"{cat}-{asp}",
+        plan=StagePlan(
+            val_strategy=spec.training.val_strategy,
+            val_fraction=cfg.val_fraction,
+            val_holdout_snapshot=spec.training.val_holdout_snapshot,
+            neg_pos_ratio=cfg.neg_pos_ratio,
+            seed=cfg.seed,
+            parent_map_path=parent_map_path,
+            carry_go_terms=cfg.ia_weighting != "none",
+        ),
+    )
+
+    report["split"] = _split_info(spec, stage)
+    _dump_report(out_dir, report)
+    return cfg, feature_cols, categorical_cols, stage, ds_dir
+
+
+@dataclasses.dataclass
+class _RunContext:
+    """Per-run identifiers + sinks shared by the train/predict helpers."""
+
+    out_dir: Path
+    run_id: str
+    spec: ExperimentSpec
+    feature_cols: list[str]
+    categorical_cols: list[str]
+    report: dict[str, Any]
+    wandb_run: Any
+
+
+def _build_splits(
+    cfg: TrainConfig,
+    stage: StageResult,
+    ds_dir: Path,
+    feature_cols: list[str],
+    report: dict[str, Any],
+) -> tuple[SplitArrays, SplitArrays | None]:
+    """Load train/val sequences + arrays and attach IA weights."""
+    train_labels = np.load(stage.train.labels_path)
+
+    val_seq = val_labels = val_groups = None
+    if stage.val is not None and stage.val.n_rows > 0:
+        val_seq = ParquetFeatureSequence(
+            [str(p) for p in stage.val.bucket_paths], feature_cols,
+        )
+        val_labels = np.load(stage.val.labels_path)
+        val_groups = np.load(stage.val.groups_path)
+
+    train_weights, val_weights = _build_ia_weights(
+        cfg, ds_dir, stage, train_labels, val_labels, report,
+    )
+
+    train_split = SplitArrays(
+        seq=ParquetFeatureSequence(
+            [str(p) for p in stage.train.bucket_paths], feature_cols,
+        ),
+        labels=train_labels,
+        groups=np.load(stage.train.groups_path),
+        weights=train_weights,
+    )
+    val_split = None
+    if val_seq is not None:
+        val_split = SplitArrays(
+            seq=val_seq, labels=val_labels, groups=val_groups, weights=val_weights,
+        )
+    return train_split, val_split
+
+
+def _evaluate_and_record(
+    booster: Any,
+    train_metrics: dict[str, Any],
+    stage: StageResult,
+    ctx: _RunContext,
+) -> None:
+    """Score eval split, write predictions, and fill ``ctx.report``."""
+    eval_seq = ParquetFeatureSequence(
+        [str(p) for p in stage.eval.bucket_paths], ctx.feature_cols,
+    )
+    eval_labels = np.load(stage.eval.labels_path)
+    eval_groups = np.load(stage.eval.groups_path)
+    eval_proteins = np.load(stage.eval.proteins_path, allow_pickle=True)
+
+    scores = predict_streaming(booster, eval_seq)
+    fmax = fmax_per_protein_group(scores, eval_labels, eval_groups)
+    _write_predictions(
+        ctx.out_dir / "predictions.parquet",
+        scores=scores, labels=eval_labels,
+        groups=eval_groups, proteins_per_group=eval_proteins,
+    )
+
+    best_iter = int(train_metrics["best_iteration"])
+    ctx.report["metrics"] = {"test_fmax": float(fmax), "best_iteration": best_iter}
+    ctx.report["feature_importance"] = {k: float(v) for k, v in sorted(
+        train_metrics["feature_importance"].items(), key=lambda kv: -kv[1]
+    )}
+    ctx.report["status"] = "ok"
+
+    # LM.1 champion candidate hook (appends to champions.candidates.md).
+    _maybe_append_champion_candidate(
+        ctx.spec.training.cell, float(fmax), ctx.run_id, ctx.out_dir
+    )
+
+    if ctx.wandb_run is not None:
+        ctx.wandb_run.log({"test_fmax": float(fmax), "best_iteration": best_iter})
+        ctx.wandb_run.summary["test_fmax"] = float(fmax)
+        ctx.wandb_run.summary["best_iteration"] = best_iter
+        ctx.wandb_run.save(str(ctx.out_dir / "run.json"))
+
+
+def _train_predict_report(
+    *,
+    cfg: TrainConfig,
+    stage: StageResult,
+    ds_dir: Path,
+    ctx: _RunContext,
+) -> None:
+    """Load splits, fit the booster, predict on eval, and fill the report."""
+    train_split, val_split = _build_splits(
+        cfg, stage, ds_dir, ctx.feature_cols, ctx.report,
+    )
+    booster, train_metrics = fit(
+        train_split, val_split, cfg,
+        feature_names=ctx.feature_cols,
+        categorical_features=ctx.categorical_cols,
+    )
+    booster.save_model(str(ctx.out_dir / "model.txt"))
+    _evaluate_and_record(booster, train_metrics, stage, ctx)
 
 
 def _make_run_id(spec: ExperimentSpec) -> str:

@@ -59,20 +59,17 @@ class TrainConfig:
         return numeric, categorical
 
 
-def fit(
-    train_seq: lgb.Sequence | list[lgb.Sequence],
-    train_labels: np.ndarray,
-    train_groups: np.ndarray | None,
-    val_seq: lgb.Sequence | list[lgb.Sequence] | None,
-    val_labels: np.ndarray | None,
-    val_groups: np.ndarray | None,
-    cfg: TrainConfig,
-    *,
-    feature_names: list[str],
-    categorical_features: list[str],
-    train_weights: np.ndarray | None = None,
-    val_weights: np.ndarray | None = None,
-) -> tuple[lgb.Booster, dict[str, Any]]:
+@dataclass
+class SplitArrays:
+    """One LightGBM split: feature sequence(s) + row-aligned label/group/weight."""
+
+    seq: "lgb.Sequence | list[lgb.Sequence] | None"
+    labels: np.ndarray | None
+    groups: np.ndarray | None = None
+    weights: np.ndarray | None = None
+
+
+def _lgb_params(cfg: TrainConfig) -> dict[str, Any]:
     params: dict[str, Any] = {
         "objective": cfg.objective,
         "learning_rate": cfg.learning_rate,
@@ -88,31 +85,51 @@ def fit(
         params["metric"] = ["ndcg", "map"]
         params["ndcg_eval_at"] = [5, 10]
         params["label_gain"] = [0, 1]
+    return params
 
-    train_seq_list = train_seq if isinstance(train_seq, list) else [train_seq]
-    train_ds = lgb.Dataset(
-        train_seq_list,
-        label=train_labels,
-        group=train_groups if cfg.objective == "lambdarank" else None,
-        weight=train_weights,
+
+def _make_dataset(
+    split: SplitArrays,
+    cfg: TrainConfig,
+    *,
+    feature_names: list[str],
+    categorical_features: list[str],
+    reference: "lgb.Dataset | None" = None,
+) -> lgb.Dataset:
+    seq_list = split.seq if isinstance(split.seq, list) else [split.seq]
+    return lgb.Dataset(
+        seq_list,
+        label=split.labels,
+        group=split.groups if cfg.objective == "lambdarank" else None,
+        weight=split.weights,
         feature_name=feature_names,
         categorical_feature=categorical_features or "auto",
+        reference=reference,
         free_raw_data=True,
+    )
+
+
+def fit(
+    train: SplitArrays,
+    val: SplitArrays | None,
+    cfg: TrainConfig,
+    *,
+    feature_names: list[str],
+    categorical_features: list[str],
+) -> tuple[lgb.Booster, dict[str, Any]]:
+    params = _lgb_params(cfg)
+
+    train_ds = _make_dataset(
+        train, cfg, feature_names=feature_names,
+        categorical_features=categorical_features,
     )
     valid_sets = [train_ds]
     valid_names = ["train"]
 
-    if val_seq is not None and val_labels is not None and len(val_labels):
-        val_seq_list = val_seq if isinstance(val_seq, list) else [val_seq]
-        val_ds = lgb.Dataset(
-            val_seq_list,
-            label=val_labels,
-            group=val_groups if cfg.objective == "lambdarank" else None,
-            weight=val_weights,
-            feature_name=feature_names,
-            categorical_feature=categorical_features or "auto",
-            reference=train_ds,
-            free_raw_data=True,
+    if val is not None and val.labels is not None and len(val.labels):
+        val_ds = _make_dataset(
+            val, cfg, feature_names=feature_names,
+            categorical_features=categorical_features, reference=train_ds,
         )
         valid_sets.append(val_ds)
         valid_names.append("val")
