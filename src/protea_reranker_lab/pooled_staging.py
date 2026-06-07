@@ -4,25 +4,12 @@ Streams each of the 24 v226-lineage manifests (8 PLM x K{3,5,10}) through
 shared bucket writers without writing a physical combined parquet (avoids
 write-OOM). ``plm_id`` and ``k_context`` are injected as constants per source.
 
-Memory-bounded design (F-RERANK-UNIVERSAL.5a re-run)
------------------------------------------------------
-The prior implementation accumulated ALL 671 M rows from 24 sources into
-concatenated numpy arrays in Pass 0 (proteins/labels/pairs/go_terms/aspects),
-then ran ``_decide_split`` + ``_cap_oversized_groups`` on the global arrays,
-causing ~55 GB resident set + swap thrashing on a 62 GB host.
+Memory-bounded design: per-source Pass 0 scans ONLY
+(protein_accession, label, snapshot_pair, aspect), computes keep_mask / val_mask
+immediately, then frees the row arrays. Peak RAM per source is ~1 GB; global
+state is only the list of boolean masks + the tiny cat-vocab sets.
 
-The fix: **per-source Pass 0**.  For each source we scan ONLY the columns
-needed for split-routing (protein_accession, label, snapshot_pair, aspect),
-compute the per-source keep_mask / val_mask IMMEDIATELY, apply
-``_cap_oversized_groups`` per source, store only the (small) boolean mask
-arrays (≤ 1 byte/row), and FREE the row arrays before moving to the next
-source.  Peak in-RAM per source is ≤ ~1 GB (one K10 source with 33 M rows
-× ~30 bytes for proteins + labels + pairs); global structure holds only
-the list of boolean masks + the tiny cat-vocab sets.
-
-This module is intentionally separated from :mod:`staging` to keep file LOC
-within the smell budget.  The public entry point is
-:func:`stage_for_training_pooled`; ``staging.py`` re-exports it.
+Public entry point: :func:`stage_for_training_pooled`.
 """
 
 from __future__ import annotations
@@ -50,6 +37,7 @@ from .data import iter_batches
 from .splits import StagedSplit, StageResult, _materialise_split
 from .staging import (
     BucketRouting,
+    _CarryFlags,
     FeatureLayout,
     LGBM_LAMBDARANK_MAX_GROUP,
     StagePlan,
@@ -77,17 +65,10 @@ _INJECTABLE_COLS = frozenset({"plm_id", "k_context"})
 _GLOBAL_ROW_BUDGET: int | None = 80_000_000
 
 
-# ---------------------------------------------------------------------------
-# RSS measurement helper
-# ---------------------------------------------------------------------------
-
-
 def _rss_gb() -> float:
-    """Return current process RSS in GB (Linux: /proc/self/status)."""
+    """Return current process RSS in GB (Linux maxrss is kB)."""
     try:
-        ru = resource.getrusage(resource.RUSAGE_SELF)
-        # maxrss is in kilobytes on Linux
-        return ru.ru_maxrss / (1024 * 1024)
+        return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 * 1024)
     except Exception:
         return float("nan")
 
@@ -430,11 +411,16 @@ def _pass1_route_batch(
         if ctx.carry_go_terms and "go_term_id" in batch.schema.names else None
     )
     aspects_col = batch.column("aspect") if "aspect" in batch.schema.names else None
+    # Carry snapshot_pair for the extended 4-tuple group key (F-RERANK-UNIVERSAL.5d).
+    snapshot_pairs_col = (
+        batch.column("snapshot_pair") if "snapshot_pair" in batch.schema.names else None
+    )
     feat_arrays = _inject_src_features(batch, ctx.layout.feature_cols, enc)
     bucket_idx = _bucket_array(accessions, ctx.routing.bucket_count)
     batch_cols = _BatchColumns(
         accessions=accessions, labels=labels,
         feat_arrays=feat_arrays, go_terms=go_terms_col, aspects=aspects_col,
+        snapshot_pairs=snapshot_pairs_col,
     )
     _route_to_writers(batch_cols, bucket_idx, ctx, local_keep, local_val, enc.cat_set)
 
@@ -460,7 +446,7 @@ def _route_to_writers(
                 continue
             table = _build_bucket_table(
                 np.flatnonzero(row_mask), batch_cols, ctx.layout, cat_set,
-                carry_go_terms=ctx.carry_go_terms, carry_aspect=True,
+                _CarryFlags(go_terms=ctx.carry_go_terms, aspect=True, snapshot_pair=True),
             )
             writers[int(b)].write_table(table)
 
@@ -481,6 +467,9 @@ def _pass1_route_pooled_source(ctx: _Pass1PooledCtx) -> None:
         cols.append("go_term_id")
     if "aspect" not in seen:
         cols.append("aspect")
+    # Carry snapshot_pair for the extended 4-tuple group key (F-RERANK-UNIVERSAL.5d).
+    if "snapshot_pair" not in seen:
+        cols.append("snapshot_pair")
     scan_cols = _present_columns(ctx.parquet_path, [c for c in cols if c not in _INJECTABLE_COLS])
     enc = _SrcEncoder.from_layout_and_src(ctx.layout, ctx.src)
     cursor = 0
@@ -517,7 +506,7 @@ class _EvalPooledCtx:
 
 def _stream_eval_pooled(ctx: _EvalPooledCtx) -> None:
     """Stream one eval source into bucket writers, injecting plm_id + k_context."""
-    # Deduplicate (aspect may already be in feature_cols).
+    # Deduplicate (aspect / snapshot_pair may already be in feature_cols).
     seen: set[str] = {"protein_accession", "label"}
     scan_cols_raw: list[str] = ["protein_accession", "label"]
     for c in ctx.feature_cols:
@@ -526,6 +515,9 @@ def _stream_eval_pooled(ctx: _EvalPooledCtx) -> None:
             seen.add(c)
     if "aspect" not in seen:
         scan_cols_raw.append("aspect")
+    # Carry snapshot_pair for the extended 4-tuple group key (F-RERANK-UNIVERSAL.5d).
+    if "snapshot_pair" not in seen:
+        scan_cols_raw.append("snapshot_pair")
     scan_cols = _present_columns(ctx.eval_pq,
                                  [c for c in scan_cols_raw if c not in _INJECTABLE_COLS])
     enc = _SrcEncoder.from_cat_codes_and_src(ctx.categorical_cols, ctx.cat_codes, ctx.src)
@@ -554,6 +546,10 @@ def _write_eval_batch(
 
     feat = _inject_src_features(batch, ctx.feature_cols, enc)
     aspects_col = batch.column("aspect") if "aspect" in batch.schema.names else None
+    # Carry snapshot_pair for the extended 4-tuple group key (F-RERANK-UNIVERSAL.5d).
+    snapshot_pairs_col = (
+        batch.column("snapshot_pair") if "snapshot_pair" in batch.schema.names else None
+    )
     bucket_idx = _bucket_array(accessions, ctx.bucket_count)
     for b in np.unique(bucket_idx):
         idx = np.flatnonzero(bucket_idx == b)
@@ -562,6 +558,8 @@ def _write_eval_batch(
             accessions.take(idx_arr),
             pa.array(labels[idx], type=pa.int8()),
             (aspects_col.take(idx_arr) if aspects_col is not None
+             else pa.array([""] * len(idx), type=pa.string())),
+            (snapshot_pairs_col.take(idx_arr) if snapshot_pairs_col is not None
              else pa.array([""] * len(idx), type=pa.string())),
         ]
         for c in ctx.feature_cols:
@@ -661,22 +659,30 @@ def _route_eval_split_bounded(
     )
 
 
-_BUCKET_RESERVED = frozenset(("protein_accession", "label", "go_term_id", "aspect"))
+_BUCKET_RESERVED = frozenset(
+    ("protein_accession", "label", "go_term_id", "aspect", "snapshot_pair")
+)
 
 
 def _bounded_write_splits(
     ctx: _BoundedWriteCtx,
 ) -> tuple[StagedSplit | None, StagedSplit | None, StagedSplit | None]:
     """Open bucket writers, route all sources, materialise train/val/eval splits."""
-    # Strip reserved bucket columns from feature_cols: aspect / go_term_id are
-    # carried as dedicated reserved columns; including them in feature_cols would
-    # create duplicate field names in the bucket parquet schema.
+    # Strip reserved bucket columns from feature_cols: aspect / go_term_id /
+    # snapshot_pair are carried as dedicated reserved columns; including them
+    # in feature_cols would create duplicate field names in the bucket parquet
+    # schema.
     feat_cols = [c for c in ctx.feature_cols if c not in _BUCKET_RESERVED]
     cat_cols = [c for c in ctx.categorical_cols if c not in _BUCKET_RESERVED]
-    eval_schema = _build_pass1_schema(feat_cols, cat_cols, carry_aspect=True)
+    # The pooled path always uses the extended 4-tuple group key
+    # (snapshot_pair, protein, aspect, plm_id) per F-RERANK-UNIVERSAL.5d.
+    eval_schema = _build_pass1_schema(
+        feat_cols, cat_cols, carry_aspect=True, carry_snapshot_pair=True,
+    )
     train_schema = _build_pass1_schema(
         feat_cols, cat_cols,
-        carry_go_terms=ctx.plan.carry_go_terms, carry_aspect=True,
+        carry_go_terms=ctx.plan.carry_go_terms,
+        carry_aspect=True, carry_snapshot_pair=True,
     )
     with tempfile.TemporaryDirectory(prefix="staging_pooled_", dir=ctx.out_dir) as tmp:
         tmp_dir = Path(tmp)
