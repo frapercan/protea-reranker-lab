@@ -22,6 +22,32 @@ The pipeline is:
 Memory bound at any time: ~one batch (≈ 200k rows × n_cols × 8 B ≈ 100 MB)
 plus the largest bucket during the sort pass (~250 MB for 32 buckets on the
 nk-bpo cell of bench-v1-K5). No structure ever holds the whole partition.
+
+Aspect-conditioned staging (F-RERANK-UNIVERSAL.3)
+--------------------------------------------------
+When ``StagePlan.aspect_conditioned=True`` the cell-level aspect filter is
+removed so a SINGLE fit sees ALL aspects simultaneously.  ``aspect`` is kept
+as a LIVE conditioning feature column (written into the bucket parquets and
+available to the booster) and the LambdaRank group key switches from
+per-protein to per-(protein, aspect).
+
+Bucket routing remains ``crc32(protein_accession) % bucket_count``; this
+guarantees that all rows for a protein, across ALL aspects, land in the same
+bucket, so no group ever straddles two buckets.  Within each bucket the sort
+key becomes ``(protein_accession, aspect)`` so groups are contiguous.
+
+VALID / TEST window plumbing
+-----------------------------
+``StagePlan.train_snapshot_pairs``  filters the training set to specific
+snapshot pairs (e.g. all historical pairs up to v226-v227).
+
+``StagePlan.eval_snapshot_pair``    selects the primary VALID evaluation
+window (e.g. ``"v226-v227"``) for selection / threshold-tuning.
+
+``StagePlan.test_snapshot_pairs``   is a LIST of snapshot pairs forming the
+multi-window TEST curve (e.g. ``["v227-v228", "v227-v229", "v227-v230"]``).
+The TEST window is evaluate-once; design here exposes the plumbing, consumed
+by downstream callers (F-RERANK-UNIVERSAL.6+).
 """
 
 from __future__ import annotations
@@ -89,15 +115,25 @@ def _scan_pass0(
     cat_cols: list[str],
     batch_size: int,
     collect_go_terms: bool = False,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict[str, list[str]], np.ndarray | None]:
+    collect_aspects: bool = False,
+) -> tuple[
+    np.ndarray, np.ndarray, np.ndarray, dict[str, list[str]],
+    np.ndarray | None, np.ndarray | None,
+]:
     """Collect protein, label, snapshot_pair, cat-value vocabulary, and
-    optionally go_term_id (only needed for True-Path-Rule propagation).
+    optionally go_term_id / aspect (for True-Path-Rule propagation /
+    aspect-conditioned group key).
 
-    Returns ``(proteins, labels, snapshot_pair, cat_codes, go_terms_or_None)``.
+    Returns
+    -------
+    ``(proteins, labels, snapshot_pairs, cat_codes, go_terms_or_None,
+    aspects_or_None)``.
     """
     cols = ["protein_accession", "label", "snapshot_pair", *cat_cols]
     if collect_go_terms:
         cols.append("go_term_id")
+    if collect_aspects:
+        cols.append("aspect")
     cols = _present_columns(parquet_path, cols)
     cat_seen: dict[str, set] = {c: set() for c in cat_cols}
 
@@ -105,6 +141,7 @@ def _scan_pass0(
     label_chunks: list[np.ndarray] = []
     pair_chunks: list[np.ndarray] = []
     go_chunks: list[np.ndarray] = []
+    asp_chunks: list[np.ndarray] = []
 
     for batch in iter_batches(
         parquet_path,
@@ -120,6 +157,8 @@ def _scan_pass0(
             pair_chunks.append(batch.column("snapshot_pair").to_numpy(zero_copy_only=False))
         if collect_go_terms and "go_term_id" in batch.schema.names:
             go_chunks.append(batch.column("go_term_id").to_numpy(zero_copy_only=False))
+        if collect_aspects and "aspect" in batch.schema.names:
+            asp_chunks.append(batch.column("aspect").to_numpy(zero_copy_only=False))
         for c in cat_cols:
             if c not in batch.schema.names:
                 continue
@@ -133,9 +172,10 @@ def _scan_pass0(
     pairs = (np.concatenate(pair_chunks) if pair_chunks
              else np.empty(len(proteins), dtype=object))
     go_terms = np.concatenate(go_chunks) if go_chunks else None
+    aspects = np.concatenate(asp_chunks) if asp_chunks else None
 
     cat_codes = {c: sorted(cat_seen[c]) for c in cat_cols}
-    return proteins, labels, pairs, cat_codes, go_terms
+    return proteins, labels, pairs, cat_codes, go_terms, aspects
 
 
 def _decide_split(
@@ -197,8 +237,11 @@ def _decide_split(
 
 # LightGBM hardcodes ``kMaxPosition = 10000`` per query in LambdaRank. Cap
 # oversized groups in staging so the booster's ranking objective never trips
-# the limit. Highly annotated proteins (e.g. TGF-β1 / P01137) blow past this
-# when 12 snapshot pairs × 5 KNN neighbours × dozens of GO candidates pile up.
+# the limit. Highly annotated proteins (e.g. TGF-b1 / P01137) blow past this
+# when 12 snapshot pairs x 5 KNN neighbours x dozens of GO candidates pile up.
+# In aspect-conditioned mode the group key is (protein, aspect, side) so the
+# 9999 cap applies per (protein, aspect) pair; a protein with many aspects may
+# have up to 3 * 9999 rows total, which is well within LightGBM's limits.
 LGBM_LAMBDARANK_MAX_GROUP = 9999
 
 
@@ -210,17 +253,42 @@ def _cap_oversized_groups(
     val_mask: np.ndarray,
     max_group_size: int,
     seed: int,
+    aspects: np.ndarray | None = None,
 ) -> tuple[np.ndarray, int]:
-    """Drop random non-positive rows from any (protein, side) bucket that
-    exceeds ``max_group_size``. Returns ``(keep_mask, n_dropped)``."""
+    """Drop random non-positive rows from any group bucket that exceeds
+    ``max_group_size``.
+
+    The group key is:
+    - ``(protein, side)``           when ``aspects is None`` (legacy path).
+    - ``(protein, aspect, side)``   when ``aspects`` is provided
+                                    (aspect-conditioned path).
+
+    Returns ``(keep_mask, n_dropped)``.
+    """
     if max_group_size <= 0 or len(proteins) == 0:
         return keep_mask, 0
     rng = np.random.default_rng(seed + 1)
     side = val_mask.astype(np.int8)
-    order = np.lexsort((side, proteins))
-    sorted_proteins = proteins[order]
-    sorted_side = side[order]
-    boundary = (sorted_proteins[1:] != sorted_proteins[:-1]) | (sorted_side[1:] != sorted_side[:-1])
+
+    if aspects is not None:
+        order = np.lexsort((side, aspects, proteins))
+        sorted_proteins = proteins[order]
+        sorted_aspects = aspects[order]
+        sorted_side = side[order]
+        boundary = (
+            (sorted_proteins[1:] != sorted_proteins[:-1])
+            | (sorted_aspects[1:] != sorted_aspects[:-1])
+            | (sorted_side[1:] != sorted_side[:-1])
+        )
+    else:
+        order = np.lexsort((side, proteins))
+        sorted_proteins = proteins[order]
+        sorted_side = side[order]
+        boundary = (
+            (sorted_proteins[1:] != sorted_proteins[:-1])
+            | (sorted_side[1:] != sorted_side[:-1])
+        )
+
     edges = np.concatenate(([0], np.flatnonzero(boundary) + 1, [len(order)]))
 
     n_dropped = 0
@@ -252,6 +320,7 @@ class _BatchColumns:
     labels: np.ndarray
     feat_arrays: dict[str, np.ndarray]
     go_terms: pa.Array | None
+    aspects: pa.Array | None
 
 
 def _build_bucket_table(
@@ -261,6 +330,7 @@ def _build_bucket_table(
     cat_set: set[str],
     *,
     carry_go_terms: bool,
+    carry_aspect: bool = False,
 ) -> pa.Table:
     """Assemble the parquet table for one bucket's selected rows."""
     idx_arr = pa.array(idx)
@@ -272,6 +342,11 @@ def _build_bucket_table(
         cols_data.append(
             cols.go_terms.take(idx_arr) if cols.go_terms is not None
             else pa.array([None] * len(idx), type=pa.string())
+        )
+    if carry_aspect:
+        cols_data.append(
+            cols.aspects.take(idx_arr) if cols.aspects is not None
+            else pa.array([""] * len(idx), type=pa.string())
         )
     for c in layout.feature_cols:
         a = cols.feat_arrays[c][idx]
@@ -290,17 +365,21 @@ def _pass1_route_and_write(
     val_mask: np.ndarray,
     override_labels: np.ndarray | None = None,
     carry_go_terms: bool = False,
+    carry_aspect: bool = False,
 ) -> tuple[int, int]:
     """Stream filter + cat-encode + bucket-route. Return ``(n_train, n_val)``.
 
     If ``override_labels`` is provided (length matching the cell-filtered row
-    count produced by Pass 0), it replaces the source's ``label`` column —
+    count produced by Pass 0), it replaces the source's ``label`` column --
     used for True-Path-Rule label propagation. ``carry_go_terms`` adds the
     ``go_term_id`` column so IA sample weighting can map each row to IA(go).
+    ``carry_aspect`` adds the ``aspect`` column for aspect-conditioned grouping.
     """
     cols = ["protein_accession", "label", *layout.feature_cols]
     if carry_go_terms:
         cols.append("go_term_id")
+    if carry_aspect:
+        cols.append("aspect")
     cols = _present_columns(source.parquet_path, cols)
     cat_set = set(layout.categorical_cols)
     code_maps = {
@@ -336,11 +415,17 @@ def _pass1_route_and_write(
             if carry_go_terms and "go_term_id" in batch.schema.names
             else None
         )
+        aspects_col = (
+            batch.column("aspect")
+            if carry_aspect and "aspect" in batch.schema.names
+            else None
+        )
         feat_arrays = _encode_feature_arrays(batch, layout.feature_cols, cat_set, code_maps)
         bucket_idx = _bucket_array(accessions, routing.bucket_count)
         batch_cols = _BatchColumns(
             accessions=accessions, labels=labels,
             feat_arrays=feat_arrays, go_terms=go_terms,
+            aspects=aspects_col,
         )
 
         for is_val, writers in (
@@ -360,6 +445,7 @@ def _pass1_route_and_write(
                 table = _build_bucket_table(
                     idx, batch_cols, layout, cat_set,
                     carry_go_terms=carry_go_terms,
+                    carry_aspect=carry_aspect,
                 )
                 writers[int(b)].write_table(table)
                 if is_val:
@@ -438,7 +524,33 @@ def stage_eval_only(
 
 @dataclass
 class StagePlan:
-    """Split + snapshot + bucketing knobs for :func:`stage_for_training`."""
+    """Split + snapshot + bucketing knobs for :func:`stage_for_training`.
+
+    VALID / TEST window fields (F-RERANK-UNIVERSAL.3)
+    --------------------------------------------------
+    ``train_snapshot_pairs``
+        Restrict training rows to these snapshot pairs.  ``None`` = all pairs.
+    ``eval_snapshot_pair``
+        VALID window: the single snapshot pair used for the primary
+        evaluation / selection pass (e.g. ``"v226-v227"``).
+    ``test_snapshot_pairs``
+        TEST multi-window curve: a list of snapshot pairs for the
+        evaluate-once TEST step (e.g. ``["v227-v228", "v227-v229",
+        "v227-v230"]``).  ``None`` means no TEST window is staged here.
+        Consumed by downstream callers; stage_for_training passes this
+        through to callers via ``StageResult`` metadata (not staged as a
+        separate split -- that is done by the caller for the frozen model).
+
+    Aspect-conditioned grouping (F-RERANK-UNIVERSAL.3)
+    ---------------------------------------------------
+    ``aspect_conditioned``
+        When ``True``, staging removes the per-cell aspect filter so all
+        aspects flow through together.  The ``aspect`` column is written to
+        bucket parquets as a conditioning feature and the LambdaRank group
+        key changes from per-protein to per-(protein, aspect).  The bucket
+        router remains ``crc32(protein_accession) % bucket_count`` so group
+        contiguity across buckets is never violated.
+    """
 
     val_strategy: str
     val_fraction: float
@@ -447,10 +559,12 @@ class StagePlan:
     seed: int
     train_snapshot_pairs: list[str] | None = None
     eval_snapshot_pair: str | None = None
+    test_snapshot_pairs: list[str] | None = None
     bucket_count: int = 32
     batch_size: int = 200_000
     parent_map_path: Path | str | None = None
     carry_go_terms: bool = False
+    aspect_conditioned: bool = False
 
 
 def _propagate_train_labels(
@@ -480,15 +594,19 @@ def _eval_override_labels(
     *,
     source_eval_parquet: Path,
     cat: str,
-    asp: str,
+    asp: str | None,
     plan: StagePlan,
     propagation_stats: dict[str, int],
 ) -> np.ndarray | None:
-    """Compute propagated eval labels (and update stats) when propagating."""
+    """Compute propagated eval labels (and update stats) when propagating.
+
+    When ``asp is None`` (aspect-conditioned path) no aspect filter is applied
+    to the eval pass.
+    """
     if plan.parent_map_path is None:
         return None
     parent_map_local = load_parent_map(plan.parent_map_path)
-    ev_proteins, ev_labels, _, _, ev_go_terms = _scan_pass0(
+    ev_proteins, ev_labels, _, _, ev_go_terms, _ = _scan_pass0(
         source_eval_parquet,
         category=cat, aspect=asp,
         snapshot_pairs=[plan.eval_snapshot_pair] if plan.eval_snapshot_pair else None,
@@ -518,26 +636,50 @@ def stage_for_training(
     out_dir: Path,
     plan: StagePlan,
 ) -> StageResult:
-    cat, asp = cell[0].lower(), cell[1].lower()
+    """Stage training + val + eval splits.
+
+    When ``plan.aspect_conditioned=True`` the second element of ``cell`` is
+    IGNORED as a filter -- all aspects flow through together.  The ``aspect``
+    column is written to bucket parquets as a conditioning feature and the
+    LambdaRank group key becomes per-(protein, aspect).
+
+    When ``plan.aspect_conditioned=False`` (default) the behaviour is
+    identical to the original per-cell per-aspect path.
+    """
+    cat = cell[0].lower()
+    # Aspect-conditioned path: no aspect filter, aspect col written to buckets.
+    # Legacy path: filter rows to the single aspect declared in ``cell``.
+    asp_filter: str | None = None if plan.aspect_conditioned else cell[1].lower()
+    asp_label = cell[1].lower()  # used only for error messages + JSON metadata
+
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # The eval split never carries go_term_id (IA weights apply to training
     # only), so train/val and eval use distinct schemas.
-    eval_schema = _build_pass1_schema(feature_cols, categorical_cols)
+    # In aspect-conditioned mode the ``aspect`` column is included in ALL
+    # schemas (train, val, eval) so it is available as a feature AND as
+    # the group-key discriminator in _sort_bucket.
+    eval_schema = _build_pass1_schema(
+        feature_cols, categorical_cols,
+        carry_aspect=plan.aspect_conditioned,
+    )
     train_schema = _build_pass1_schema(
-        feature_cols, categorical_cols, carry_go_terms=plan.carry_go_terms
+        feature_cols, categorical_cols,
+        carry_go_terms=plan.carry_go_terms,
+        carry_aspect=plan.aspect_conditioned,
     )
     numeric_cols = [c for c in feature_cols if c not in set(categorical_cols)]
 
     propagate = plan.parent_map_path is not None
-    proteins0, labels0, pairs0, cat_codes, go_terms0 = _scan_pass0(
+    proteins0, labels0, pairs0, cat_codes, go_terms0, aspects0 = _scan_pass0(
         source_train_parquet,
-        category=cat, aspect=asp,
+        category=cat, aspect=asp_filter,
         snapshot_pairs=plan.train_snapshot_pairs,
         cat_cols=categorical_cols,
         batch_size=plan.batch_size,
         collect_go_terms=propagate,
+        collect_aspects=plan.aspect_conditioned,
     )
 
     propagation_stats: dict[str, int] = {}
@@ -561,6 +703,7 @@ def stage_for_training(
         keep_mask=keep_mask, val_mask=val_mask,
         max_group_size=LGBM_LAMBDARANK_MAX_GROUP,
         seed=plan.seed,
+        aspects=aspects0 if plan.aspect_conditioned else None,
     )
 
     with tempfile.TemporaryDirectory(prefix="staging_buckets_", dir=out_dir) as tmp:
@@ -573,7 +716,7 @@ def stage_for_training(
 
         _pass1_route_and_write(
             source=SourceScan(
-                parquet_path=source_train_parquet, category=cat, aspect=asp,
+                parquet_path=source_train_parquet, category=cat, aspect=asp_filter,
                 snapshot_pairs=plan.train_snapshot_pairs, batch_size=plan.batch_size,
             ),
             layout=FeatureLayout(
@@ -587,6 +730,7 @@ def stage_for_training(
             keep_mask=keep_mask, val_mask=val_mask,
             override_labels=labels0 if propagate else None,
             carry_go_terms=plan.carry_go_terms,
+            carry_aspect=plan.aspect_conditioned,
         )
 
         train_split = _materialise_split(
@@ -608,12 +752,12 @@ def stage_for_training(
 
         eval_writers = _open_bucket_writers(tmp_dir, eval_schema, plan.bucket_count, "eval")
         eval_override_labels = _eval_override_labels(
-            source_eval_parquet=source_eval_parquet, cat=cat, asp=asp,
+            source_eval_parquet=source_eval_parquet, cat=cat, asp=asp_filter,
             plan=plan, propagation_stats=propagation_stats,
         )
         _stream_eval(
             source_eval_parquet=source_eval_parquet,
-            category=cat, aspect=asp,
+            category=cat, aspect=asp_filter,
             snapshot_pair=plan.eval_snapshot_pair,
             feature_cols=feature_cols,
             categorical_cols=categorical_cols,
@@ -623,6 +767,7 @@ def stage_for_training(
             schema=eval_schema,
             batch_size=plan.batch_size,
             override_labels=eval_override_labels,
+            carry_aspect=plan.aspect_conditioned,
         )
         eval_split = _materialise_split(
             bucket_writers=eval_writers,
@@ -634,11 +779,11 @@ def stage_for_training(
 
     if eval_split is None:
         raise RuntimeError(
-            f"eval split is empty for cell {cat}-{asp} "
+            f"eval split is empty for cell {cat}-{asp_label} "
             f"(snapshot_pair={plan.eval_snapshot_pair})"
         )
     if train_split is None:
-        raise RuntimeError(f"train split is empty for cell {cat}-{asp}")
+        raise RuntimeError(f"train split is empty for cell {cat}-{asp_label}")
 
     result = StageResult(
         train=train_split,
@@ -668,7 +813,7 @@ def _stream_eval(
     *,
     source_eval_parquet: Path,
     category: str,
-    aspect: str,
+    aspect: str | None,
     snapshot_pair: str | None,
     feature_cols: list[str],
     categorical_cols: list[str],
@@ -678,8 +823,16 @@ def _stream_eval(
     schema: pa.Schema,
     batch_size: int,
     override_labels: np.ndarray | None = None,
+    carry_aspect: bool = False,
 ) -> None:
+    """Stream the eval parquet into bucket writers.
+
+    When ``carry_aspect=True`` the ``aspect`` column is read and written into
+    the bucket so ``_sort_bucket`` can form per-(protein, aspect) groups.
+    """
     cols = ["protein_accession", "label", *feature_cols]
+    if carry_aspect:
+        cols.append("aspect")
     cols = _present_columns(source_eval_parquet, cols)
     code_maps = {c: {v: i for i, v in enumerate(cat_codes[c])} for c in categorical_cols}
     cat_set = set(categorical_cols)
@@ -717,14 +870,24 @@ def _stream_eval(
                 if arr.dtype != np.float32:
                     arr = arr.astype(np.float32, copy=False)
                 feat[c] = arr
+        aspects_col = (
+            batch.column("aspect") if carry_aspect and "aspect" in batch.schema.names
+            else None
+        )
         bucket_idx = _bucket_array(accessions, bucket_count)
         for b in np.unique(bucket_idx):
             row_mask = bucket_idx == b
             idx = np.flatnonzero(row_mask)
+            idx_arr = pa.array(idx)
             cols_data: list[pa.Array] = [
-                accessions.take(pa.array(idx)),
+                accessions.take(idx_arr),
                 pa.array(labels[idx], type=pa.int8()),
             ]
+            if carry_aspect:
+                cols_data.append(
+                    aspects_col.take(idx_arr) if aspects_col is not None
+                    else pa.array([""] * len(idx), type=pa.string())
+                )
             for c in feature_cols:
                 a = feat[c][idx]
                 if c in cat_set:

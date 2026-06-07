@@ -217,8 +217,12 @@ def _prepare_stage(
             val_holdout_snapshot=spec.training.val_holdout_snapshot,
             neg_pos_ratio=cfg.neg_pos_ratio,
             seed=cfg.seed,
+            train_snapshot_pairs=spec.training.train_snapshot_pairs,
+            eval_snapshot_pair=spec.training.eval_snapshot_pair,
+            test_snapshot_pairs=spec.training.test_snapshot_pairs,
             parent_map_path=parent_map_path,
             carry_go_terms=cfg.ia_weighting != "none",
+            aspect_conditioned=spec.training.aspect_conditioned,
         ),
     )
 
