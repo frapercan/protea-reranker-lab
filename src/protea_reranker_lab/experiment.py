@@ -24,18 +24,40 @@ EXPERIMENT_SCHEMA_VERSION = "v1"
 
 
 class DatasetRef(BaseModel):
-    """Either a pre-built dataset (by manifest path) or a build recipe."""
+    """Either a pre-built dataset (by manifest path), a build recipe, or a
+    multi-manifest pool spec for the universal multi-PLM reranker.
+
+    Exactly one of ``manifest``, ``spec``, or ``multi_manifests`` must be set:
+
+    - ``manifest``:       path to a ``manifest.json`` for a single dataset.
+    - ``spec``:           inline :class:`DatasetSpec` recipe to build on demand.
+    - ``multi_manifests``: list of ``manifest.json`` paths whose union forms the
+                          pooled training set.  The schema_sha is derived from the
+                          sorted URI list (see :mod:`protea_reranker_lab.multi_source`).
+    """
 
     manifest: Path | None = None
     spec: DatasetSpec | None = None
+    multi_manifests: list[Path] | None = None
 
     model_config = {"frozen": True}
 
     @model_validator(mode="after")
     def _exactly_one(self) -> "DatasetRef":
-        if (self.manifest is None) == (self.spec is None):
-            raise ValueError("DatasetRef: set exactly one of 'manifest' or 'spec'")
+        filled = sum(
+            x is not None
+            for x in (self.manifest, self.spec, self.multi_manifests)
+        )
+        if filled != 1:
+            raise ValueError(
+                "DatasetRef: set exactly one of 'manifest', 'spec', or "
+                "'multi_manifests'."
+            )
         return self
+
+    def is_multi(self) -> bool:
+        """True when this ref points to a multi-manifest pool."""
+        return self.multi_manifests is not None
 
 
 class ModelSpec(BaseModel):
