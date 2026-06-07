@@ -223,12 +223,11 @@ def _build_ia_feval(
                 tp = int((grp_pred & (grp_gt > 0)).sum())
                 fp = int((grp_pred & (grp_gt == 0)).sum())
                 fn = int((~grp_pred & (grp_gt > 0)).sum())
-                n_pos = int((grp_gt > 0).sum())
                 w = float(ia[i])
                 if tp + fp > 0:
                     ia_prec_sum += w * tp / (tp + fp)
-                if n_pos > 0:
-                    ia_rec_sum += w * tp / (tp + fn + tp) if (tp + fn) >= 0 else 0.0
+                if tp + fn > 0:
+                    ia_rec_sum += w * tp / (tp + fn)
             mean_p = ia_prec_sum / ia_sum
             mean_r = ia_rec_sum / ia_sum
             if mean_p + mean_r > 0:

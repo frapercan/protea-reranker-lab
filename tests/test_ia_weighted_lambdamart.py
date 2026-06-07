@@ -57,7 +57,6 @@ def test_ia_feval_returns_tuple() -> None:
     """_build_ia_feval returns a callable whose result is (name, float, bool)."""
     offsets, ia, labels, _ = _toy_val_split()
     feval = _build_ia_feval(offsets, ia, labels)
-    import lightgbm as lgb
     # Build a minimal mock dataset (feval receives the dataset but only uses it
     # as a placeholder; our closure ignores it).
     n_rows = len(labels)
@@ -187,3 +186,41 @@ def test_build_ia_feval_no_crash_on_all_neg_group() -> None:
     feval = _build_ia_feval(offsets, ia, labels)
     _, val, _ = feval(scores, None)  # type: ignore[arg-type]
     assert np.isfinite(val)
+
+
+# ---------------------------------------------------------------------------
+# Recall formula regression test (F-RERANK-UNIVERSAL.5a bugfix)
+# ---------------------------------------------------------------------------
+
+
+def test_ia_feval_recall_formula_known_fixture() -> None:
+    """Pin recall = tp / (tp + fn) on a known fixture.
+
+    One group: tp=3, fn=2 (n_pos=5), fp=0.
+    Recall must be 3/5 = 0.6, NOT 3/(3+2+3) = 0.375 (the old broken denominator
+    was tp + fn + tp instead of tp + fn).
+
+    With uniform IA weights and perfect precision (fp=0), F = 2*P*R/(P+R)
+    with P=1.0, R=0.6 gives F=0.75.  We assert F > 0.74 to pin the correct
+    denominator path and would fail (< 0.5) with the old bug.
+    """
+    # Build a single-group fixture: 5 positives + 2 negatives (7 rows total).
+    # Scores: positives score 0.9, negatives score 0.1.
+    # At threshold 0.5: tp=3 (first 3 positives predicted), fn=2, fp=0.
+    # (Only 3 positives get score 0.9 and the rest get 0.1 to simulate tp=3, fn=2.)
+    labels = np.array([1, 1, 1, 0, 0, 1, 1], dtype=np.int8)
+    scores_high = np.array([0.9, 0.9, 0.9, 0.1, 0.1, 0.1, 0.1], dtype=np.float32)
+    # Group: one group covering all 7 rows.
+    offsets = np.array([0], dtype=np.int64)
+    ia = np.array([1.0], dtype=np.float64)
+
+    # At threshold 0.5: tp=3, fn=2 (last 2 positives missed), fp=0.
+    # Correct recall: 3/(3+2) = 0.6.  Old broken recall: 3/(3+2+3) = 0.375.
+    # Correct F: 2*1.0*0.6/(1.0+0.6) = 0.75.  Old broken F: ~0.545.
+    feval = _build_ia_feval(offsets, ia, labels)
+    _, val, _ = feval(scores_high, None)  # type: ignore[arg-type]
+    assert val > 0.74, (
+        f"IA feval F-score {val:.4f} is too low; expected > 0.74. "
+        "This likely indicates the recall denominator bug (tp+fn+tp instead of tp+fn) "
+        "was reintroduced."
+    )
