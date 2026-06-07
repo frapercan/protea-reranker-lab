@@ -220,6 +220,10 @@ def _stage_category(ctx: CategoryCtx, cfg: TrainConfig) -> Any:
         seed=cfg.seed,
         carry_go_terms=(cfg.ia_weighting != "none"),
         aspect_conditioned=True,
+        # F-RERANK-UNIVERSAL.5d: carry snapshot_pair for the extended group key
+        # (snapshot_pair, protein, aspect, plm_id); prevents incoherent labels
+        # across snapshot deltas from polluting the same LambdaRank group.
+        carry_snapshot_pair=True,
     )
     stage_dir = ctx.staging_root / ctx.category
     cat_cols = [c for c in ctx.categorical_cols if c in set(ctx.feature_cols)]

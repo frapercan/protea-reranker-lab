@@ -310,6 +310,15 @@ def _cap_oversized_groups(
     return keep_mask, n_dropped
 
 
+@dataclass(frozen=True)
+class _CarryFlags:
+    """Which optional reserved columns to carry into bucket parquets."""
+
+    go_terms: bool = False
+    aspect: bool = False
+    snapshot_pair: bool = False
+
+
 @dataclass
 class _BatchColumns:
     """Decoded columns of one Pass-1 batch, ready to slice + write."""
@@ -319,6 +328,7 @@ class _BatchColumns:
     feat_arrays: dict[str, np.ndarray]
     go_terms: pa.Array | None
     aspects: pa.Array | None
+    snapshot_pairs: pa.Array | None = None
 
 
 def _build_bucket_table(
@@ -326,9 +336,7 @@ def _build_bucket_table(
     cols: _BatchColumns,
     layout: FeatureLayout,
     cat_set: set[str],
-    *,
-    carry_go_terms: bool,
-    carry_aspect: bool = False,
+    flags: _CarryFlags,
 ) -> pa.Table:
     """Assemble the parquet table for one bucket's selected rows."""
     idx_arr = pa.array(idx)
@@ -336,14 +344,19 @@ def _build_bucket_table(
         cols.accessions.take(idx_arr),
         pa.array(cols.labels[idx], type=pa.int8()),
     ]
-    if carry_go_terms:
+    if flags.go_terms:
         cols_data.append(
             cols.go_terms.take(idx_arr) if cols.go_terms is not None
             else pa.array([None] * len(idx), type=pa.string())
         )
-    if carry_aspect:
+    if flags.aspect:
         cols_data.append(
             cols.aspects.take(idx_arr) if cols.aspects is not None
+            else pa.array([""] * len(idx), type=pa.string())
+        )
+    if flags.snapshot_pair:
+        cols_data.append(
+            cols.snapshot_pairs.take(idx_arr) if cols.snapshot_pairs is not None
             else pa.array([""] * len(idx), type=pa.string())
         )
     for c in layout.feature_cols:
@@ -362,22 +375,22 @@ def _pass1_route_and_write(
     keep_mask: np.ndarray,
     val_mask: np.ndarray,
     override_labels: np.ndarray | None = None,
-    carry_go_terms: bool = False,
-    carry_aspect: bool = False,
+    flags: _CarryFlags | None = None,
 ) -> tuple[int, int]:
     """Stream filter + cat-encode + bucket-route. Return ``(n_train, n_val)``.
 
-    If ``override_labels`` is provided (length matching the cell-filtered row
-    count produced by Pass 0), it replaces the source's ``label`` column --
-    used for True-Path-Rule label propagation. ``carry_go_terms`` adds the
-    ``go_term_id`` column so IA sample weighting can map each row to IA(go).
-    ``carry_aspect`` adds the ``aspect`` column for aspect-conditioned grouping.
+    ``override_labels`` replaces the source ``label`` column (True-Path-Rule
+    propagation). ``flags`` selects which optional reserved columns
+    (go_term_id, aspect, snapshot_pair) are carried into bucket parquets.
     """
+    cf = flags or _CarryFlags()
     cols = ["protein_accession", "label", *layout.feature_cols]
-    if carry_go_terms:
+    if cf.go_terms:
         cols.append("go_term_id")
-    if carry_aspect:
+    if cf.aspect:
         cols.append("aspect")
+    if cf.snapshot_pair:
+        cols.append("snapshot_pair")
     cols = _present_columns(source.parquet_path, cols)
     cat_set = set(layout.categorical_cols)
     code_maps = {
@@ -408,24 +421,15 @@ def _pass1_route_and_write(
             continue
 
         accessions = batch.column("protein_accession")
-        go_terms = (
-            batch.column("go_term_id")
-            if carry_go_terms and "go_term_id" in batch.schema.names
-            else None
-        )
-        aspects_col = (
-            batch.column("aspect")
-            if carry_aspect and "aspect" in batch.schema.names
-            else None
-        )
-        feat_arrays = _encode_feature_arrays(batch, layout.feature_cols, cat_set, code_maps)
-        bucket_idx = _bucket_array(accessions, routing.bucket_count)
         batch_cols = _BatchColumns(
             accessions=accessions, labels=labels,
-            feat_arrays=feat_arrays, go_terms=go_terms,
-            aspects=aspects_col,
+            feat_arrays=_encode_feature_arrays(batch, layout.feature_cols, cat_set, code_maps),
+            go_terms=batch.column("go_term_id") if cf.go_terms and "go_term_id" in batch.schema.names else None,
+            aspects=batch.column("aspect") if cf.aspect and "aspect" in batch.schema.names else None,
+            snapshot_pairs=batch.column("snapshot_pair") if cf.snapshot_pair and "snapshot_pair" in batch.schema.names else None,
         )
 
+        bucket_idx = _bucket_array(accessions, routing.bucket_count)
         for is_val, writers in (
             (False, routing.train_writers),
             (True, routing.val_writers),
@@ -440,12 +444,9 @@ def _pass1_route_and_write(
                 if not row_mask.any():
                     continue
                 idx = np.flatnonzero(row_mask)
-                table = _build_bucket_table(
-                    idx, batch_cols, layout, cat_set,
-                    carry_go_terms=carry_go_terms,
-                    carry_aspect=carry_aspect,
+                writers[int(b)].write_table(
+                    _build_bucket_table(idx, batch_cols, layout, cat_set, cf)
                 )
-                writers[int(b)].write_table(table)
                 if is_val:
                     n_val += len(idx)
                 else:
@@ -563,6 +564,7 @@ class StagePlan:
     parent_map_path: Path | str | None = None
     carry_go_terms: bool = False
     aspect_conditioned: bool = False
+    carry_snapshot_pair: bool = False
 
 
 def _propagate_train_labels(
@@ -624,6 +626,67 @@ def _eval_override_labels(
     return ev_labels
 
 
+@dataclass
+class _TrainValCtx:
+    """Context bundle for :func:`_stage_train_val_splits`."""
+
+    source_train_parquet: Path
+    cat: str
+    asp_filter: str | None
+    feature_cols: list[str]
+    categorical_cols: list[str]
+    out_dir: Path
+    plan: "StagePlan"
+    keep_mask: np.ndarray
+    val_mask: np.ndarray
+    labels0: np.ndarray
+    propagate: bool
+    cat_codes: dict[str, list[str]]
+    train_schema: pa.Schema
+    tmp_dir: Path
+
+
+def _stage_train_val_splits(ctx: _TrainValCtx) -> tuple["StagedSplit | None", "StagedSplit | None"]:
+    """Route train/val through bucket writers and materialise splits."""
+    plan = ctx.plan
+    train_writers = _open_bucket_writers(ctx.tmp_dir, ctx.train_schema, plan.bucket_count, "train")
+    val_writers = (
+        _open_bucket_writers(ctx.tmp_dir, ctx.train_schema, plan.bucket_count, "val")
+        if plan.val_strategy != "none" else None
+    )
+    _pass1_route_and_write(
+        source=SourceScan(
+            parquet_path=ctx.source_train_parquet, category=ctx.cat, aspect=ctx.asp_filter,
+            snapshot_pairs=plan.train_snapshot_pairs, batch_size=plan.batch_size,
+        ),
+        layout=FeatureLayout(
+            feature_cols=ctx.feature_cols, categorical_cols=ctx.categorical_cols,
+            cat_codes=ctx.cat_codes, schema=ctx.train_schema,
+        ),
+        routing=BucketRouting(
+            bucket_count=plan.bucket_count, train_writers=train_writers, val_writers=val_writers,
+        ),
+        keep_mask=ctx.keep_mask, val_mask=ctx.val_mask,
+        override_labels=ctx.labels0 if ctx.propagate else None,
+        flags=_CarryFlags(
+            go_terms=plan.carry_go_terms,
+            aspect=plan.aspect_conditioned,
+            snapshot_pair=plan.carry_snapshot_pair,
+        ),
+    )
+    train_split = _materialise_split(
+        bucket_writers=train_writers, bucket_dir=ctx.tmp_dir,
+        bucket_count=plan.bucket_count, out_dir=ctx.out_dir / "train", name="train",
+    )
+    val_split = (
+        _materialise_split(
+            bucket_writers=val_writers, bucket_dir=ctx.tmp_dir,
+            bucket_count=plan.bucket_count, out_dir=ctx.out_dir / "val", name="val",
+        ) if val_writers is not None else None
+    )
+    return train_split, val_split
+
+
 def stage_for_training(
     *,
     source_train_parquet: Path,
@@ -637,117 +700,63 @@ def stage_for_training(
     """Stage training + val + eval splits.
 
     When ``plan.aspect_conditioned=True`` the second element of ``cell`` is
-    IGNORED as a filter -- all aspects flow through together.  The ``aspect``
-    column is written to bucket parquets as a conditioning feature and the
-    LambdaRank group key becomes per-(protein, aspect).
-
-    When ``plan.aspect_conditioned=False`` (default) the behaviour is
-    identical to the original per-cell per-aspect path.
+    IGNORED as a filter; all aspects flow through together. The ``aspect``
+    column is written to bucket parquets and the LambdaRank group key becomes
+    per-(protein, aspect). When ``plan.carry_snapshot_pair=True`` the key
+    extends to ``(protein, snapshot_pair, aspect, plm_id)`` (F-RERANK-UNIVERSAL.5d).
     """
     cat = cell[0].lower()
-    # Aspect-conditioned path: no aspect filter, aspect col written to buckets.
-    # Legacy path: filter rows to the single aspect declared in ``cell``.
     asp_filter: str | None = None if plan.aspect_conditioned else cell[1].lower()
-    asp_label = cell[1].lower()  # used only for error messages + JSON metadata
-
+    asp_label = cell[1].lower()
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # The eval split never carries go_term_id (IA weights apply to training
-    # only), so train/val and eval use distinct schemas.
-    # In aspect-conditioned mode the ``aspect`` column is included in ALL
-    # schemas (train, val, eval) so it is available as a feature AND as
-    # the group-key discriminator in _sort_bucket.
     eval_schema = _build_pass1_schema(
         feature_cols, categorical_cols,
         carry_aspect=plan.aspect_conditioned,
+        carry_snapshot_pair=plan.carry_snapshot_pair,
     )
     train_schema = _build_pass1_schema(
         feature_cols, categorical_cols,
         carry_go_terms=plan.carry_go_terms,
         carry_aspect=plan.aspect_conditioned,
+        carry_snapshot_pair=plan.carry_snapshot_pair,
     )
     numeric_cols = [c for c in feature_cols if c not in set(categorical_cols)]
-
     propagate = plan.parent_map_path is not None
     proteins0, labels0, pairs0, cat_codes, go_terms0, aspects0 = _scan_pass0(
-        source_train_parquet,
-        category=cat, aspect=asp_filter,
-        snapshot_pairs=plan.train_snapshot_pairs,
-        cat_cols=categorical_cols,
-        batch_size=plan.batch_size,
-        collect_go_terms=propagate,
+        source_train_parquet, category=cat, aspect=asp_filter,
+        snapshot_pairs=plan.train_snapshot_pairs, cat_cols=categorical_cols,
+        batch_size=plan.batch_size, collect_go_terms=propagate,
         collect_aspects=plan.aspect_conditioned,
     )
-
     propagation_stats: dict[str, int] = {}
     if propagate:
         labels0, propagation_stats = _propagate_train_labels(
             proteins0=proteins0, labels0=labels0,
             go_terms0=go_terms0, parent_map_path=plan.parent_map_path,
         )
-
-    keep_mask, val_mask, val_proteins = _decide_split(
+    keep_mask, val_mask, _ = _decide_split(
         proteins=proteins0, labels=labels0, pairs=pairs0,
-        val_strategy=plan.val_strategy,
-        val_fraction=plan.val_fraction,
+        val_strategy=plan.val_strategy, val_fraction=plan.val_fraction,
         val_holdout_snapshot=plan.val_holdout_snapshot,
-        neg_pos_ratio=plan.neg_pos_ratio,
-        seed=plan.seed,
+        neg_pos_ratio=plan.neg_pos_ratio, seed=plan.seed,
     )
-
     keep_mask, _ = _cap_oversized_groups(
         proteins=proteins0, labels=labels0,
         keep_mask=keep_mask, val_mask=val_mask,
-        max_group_size=LGBM_LAMBDARANK_MAX_GROUP,
-        seed=plan.seed,
+        max_group_size=LGBM_LAMBDARANK_MAX_GROUP, seed=plan.seed,
         aspects=aspects0 if plan.aspect_conditioned else None,
     )
-
     with tempfile.TemporaryDirectory(prefix="staging_buckets_", dir=out_dir) as tmp:
         tmp_dir = Path(tmp)
-        train_writers = _open_bucket_writers(tmp_dir, train_schema, plan.bucket_count, "train")
-        val_writers = (
-            _open_bucket_writers(tmp_dir, train_schema, plan.bucket_count, "val")
-            if plan.val_strategy != "none" else None
-        )
-
-        _pass1_route_and_write(
-            source=SourceScan(
-                parquet_path=source_train_parquet, category=cat, aspect=asp_filter,
-                snapshot_pairs=plan.train_snapshot_pairs, batch_size=plan.batch_size,
-            ),
-            layout=FeatureLayout(
-                feature_cols=feature_cols, categorical_cols=categorical_cols,
-                cat_codes=cat_codes, schema=train_schema,
-            ),
-            routing=BucketRouting(
-                bucket_count=plan.bucket_count,
-                train_writers=train_writers, val_writers=val_writers,
-            ),
-            keep_mask=keep_mask, val_mask=val_mask,
-            override_labels=labels0 if propagate else None,
-            carry_go_terms=plan.carry_go_terms,
-            carry_aspect=plan.aspect_conditioned,
-        )
-
-        train_split = _materialise_split(
-            bucket_writers=train_writers,
-            bucket_dir=tmp_dir,
-            bucket_count=plan.bucket_count,
-            out_dir=out_dir / "train",
-            name="train",
-        )
-        val_split = None
-        if val_writers is not None:
-            val_split = _materialise_split(
-                bucket_writers=val_writers,
-                bucket_dir=tmp_dir,
-                bucket_count=plan.bucket_count,
-                out_dir=out_dir / "val",
-                name="val",
-            )
-
+        train_split, val_split = _stage_train_val_splits(_TrainValCtx(
+            source_train_parquet=source_train_parquet, cat=cat, asp_filter=asp_filter,
+            feature_cols=feature_cols, categorical_cols=categorical_cols,
+            out_dir=out_dir, plan=plan, keep_mask=keep_mask, val_mask=val_mask,
+            labels0=labels0, propagate=propagate, cat_codes=cat_codes,
+            train_schema=train_schema, tmp_dir=tmp_dir,
+        ))
         eval_writers = _open_bucket_writers(tmp_dir, eval_schema, plan.bucket_count, "eval")
         eval_override_labels = _eval_override_labels(
             source_eval_parquet=source_eval_parquet, cat=cat, asp=asp_filter,
@@ -757,24 +766,19 @@ def stage_for_training(
             source_eval_parquet=source_eval_parquet,
             category=cat, aspect=asp_filter,
             snapshot_pair=plan.eval_snapshot_pair,
-            feature_cols=feature_cols,
-            categorical_cols=categorical_cols,
-            cat_codes=cat_codes,
-            bucket_count=plan.bucket_count,
-            writers=eval_writers,
-            schema=eval_schema,
-            batch_size=plan.batch_size,
-            override_labels=eval_override_labels,
-            carry_aspect=plan.aspect_conditioned,
+            feature_cols=feature_cols, categorical_cols=categorical_cols,
+            cat_codes=cat_codes, bucket_count=plan.bucket_count,
+            writers=eval_writers, schema=eval_schema,
+            batch_size=plan.batch_size, override_labels=eval_override_labels,
+            flags=_CarryFlags(
+                aspect=plan.aspect_conditioned,
+                snapshot_pair=plan.carry_snapshot_pair,
+            ),
         )
         eval_split = _materialise_split(
-            bucket_writers=eval_writers,
-            bucket_dir=tmp_dir,
-            bucket_count=plan.bucket_count,
-            out_dir=out_dir / "eval",
-            name="eval",
+            bucket_writers=eval_writers, bucket_dir=tmp_dir,
+            bucket_count=plan.bucket_count, out_dir=out_dir / "eval", name="eval",
         )
-
     if eval_split is None:
         raise RuntimeError(
             f"eval split is empty for cell {cat}-{asp_label} "
@@ -782,29 +786,45 @@ def stage_for_training(
         )
     if train_split is None:
         raise RuntimeError(f"train split is empty for cell {cat}-{asp_label}")
-
     result = StageResult(
-        train=train_split,
-        val=val_split,
-        eval=eval_split,
-        cat_codes=cat_codes,
-        feature_cols=feature_cols,
-        numeric_cols=numeric_cols,
-        categorical_cols=categorical_cols,
+        train=train_split, val=val_split, eval=eval_split,
+        cat_codes=cat_codes, feature_cols=feature_cols,
+        numeric_cols=numeric_cols, categorical_cols=categorical_cols,
         n_proteins_train=int(train_split.n_groups),
         n_proteins_val=int(val_split.n_groups) if val_split else 0,
-        n_proteins_eval=int(eval_split.n_groups),
-        out_dir=out_dir,
+        n_proteins_eval=int(eval_split.n_groups), out_dir=out_dir,
     )
     if propagation_stats:
         (out_dir / "propagation.json").write_text(
-            json.dumps(
-                {"parent_map": str(plan.parent_map_path), **propagation_stats},
-                indent=2,
-            )
+            json.dumps({"parent_map": str(plan.parent_map_path), **propagation_stats}, indent=2)
         )
     result.to_json(out_dir / "staging.json")
     return result
+
+
+def _encode_eval_batch(
+    batch: "pa.RecordBatch",
+    feature_cols: list[str],
+    cat_set: set[str],
+    code_maps: dict[str, dict[str, int]],
+) -> dict[str, np.ndarray]:
+    """Encode one eval batch's feature columns (missing -> NaN/CAT_MISSING)."""
+    m = batch.num_rows
+    feat: dict[str, np.ndarray] = {}
+    for c in feature_cols:
+        if c not in batch.schema.names:
+            feat[c] = (
+                np.full(m, CAT_MISSING_CODE, dtype=np.int32)
+                if c in cat_set else np.full(m, np.nan, dtype=np.float32)
+            )
+            continue
+        col = batch.column(c)
+        if c in cat_set:
+            feat[c] = _encode_cat_batch(col, code_maps[c])
+        else:
+            arr = col.to_numpy(zero_copy_only=False)
+            feat[c] = arr.astype(np.float32, copy=False) if arr.dtype != np.float32 else arr
+    return feat
 
 
 def _stream_eval(
@@ -821,26 +841,28 @@ def _stream_eval(
     schema: pa.Schema,
     batch_size: int,
     override_labels: np.ndarray | None = None,
-    carry_aspect: bool = False,
+    flags: _CarryFlags | None = None,
 ) -> None:
     """Stream the eval parquet into bucket writers.
 
-    When ``carry_aspect=True`` the ``aspect`` column is read and written into
-    the bucket so ``_sort_bucket`` can form per-(protein, aspect) groups.
+    ``flags.aspect`` carries the ``aspect`` column for the per-(protein, aspect)
+    group key.  ``flags.snapshot_pair`` extends it to the full 4-tuple key
+    (F-RERANK-UNIVERSAL.5d).
     """
+    cf = flags or _CarryFlags()
     cols = ["protein_accession", "label", *feature_cols]
-    if carry_aspect:
+    if cf.aspect:
         cols.append("aspect")
+    if cf.snapshot_pair:
+        cols.append("snapshot_pair")
     cols = _present_columns(source_eval_parquet, cols)
     code_maps = {c: {v: i for i, v in enumerate(cat_codes[c])} for c in categorical_cols}
     cat_set = set(categorical_cols)
     cursor = 0
     for batch in iter_batches(
-        source_eval_parquet,
-        columns=cols,
+        source_eval_parquet, columns=cols,
         category=category, aspect=aspect,
-        snapshot_pair=snapshot_pair,
-        batch_size=batch_size,
+        snapshot_pair=snapshot_pair, batch_size=batch_size,
     ):
         m = batch.num_rows
         if m == 0:
@@ -851,46 +873,22 @@ def _stream_eval(
             cursor += m
         else:
             labels = batch.column("label").to_numpy(zero_copy_only=False).astype(np.int8, copy=False)
-        feat: dict[str, np.ndarray] = {}
-        for c in feature_cols:
-            if c not in batch.schema.names:
-                feat[c] = (
-                    np.full(m, CAT_MISSING_CODE, dtype=np.int32)
-                    if c in cat_set
-                    else np.full(m, np.nan, dtype=np.float32)
-                )
-                continue
-            col = batch.column(c)
-            if c in cat_set:
-                feat[c] = _encode_cat_batch(col, code_maps[c])
-            else:
-                arr = col.to_numpy(zero_copy_only=False)
-                if arr.dtype != np.float32:
-                    arr = arr.astype(np.float32, copy=False)
-                feat[c] = arr
-        aspects_col = (
-            batch.column("aspect") if carry_aspect and "aspect" in batch.schema.names
-            else None
-        )
+        feat = _encode_eval_batch(batch, feature_cols, cat_set, code_maps)
+        aspects_col = batch.column("aspect") if cf.aspect and "aspect" in batch.schema.names else None
+        snap_col = batch.column("snapshot_pair") if cf.snapshot_pair and "snapshot_pair" in batch.schema.names else None
         bucket_idx = _bucket_array(accessions, bucket_count)
         for b in np.unique(bucket_idx):
-            row_mask = bucket_idx == b
-            idx = np.flatnonzero(row_mask)
+            idx = np.flatnonzero(bucket_idx == b)
             idx_arr = pa.array(idx)
             cols_data: list[pa.Array] = [
                 accessions.take(idx_arr),
                 pa.array(labels[idx], type=pa.int8()),
             ]
-            if carry_aspect:
-                cols_data.append(
-                    aspects_col.take(idx_arr) if aspects_col is not None
-                    else pa.array([""] * len(idx), type=pa.string())
-                )
+            if cf.aspect:
+                cols_data.append(aspects_col.take(idx_arr) if aspects_col is not None else pa.array([""] * len(idx), type=pa.string()))
+            if cf.snapshot_pair:
+                cols_data.append(snap_col.take(idx_arr) if snap_col is not None else pa.array([""] * len(idx), type=pa.string()))
             for c in feature_cols:
                 a = feat[c][idx]
-                if c in cat_set:
-                    cols_data.append(pa.array(a, type=pa.int32()))
-                else:
-                    cols_data.append(pa.array(a, type=pa.float32()))
-            table = pa.Table.from_arrays(cols_data, schema=schema)
-            writers[int(b)].write_table(table)
+                cols_data.append(pa.array(a, type=pa.int32() if c in cat_set else pa.float32()))
+            writers[int(b)].write_table(pa.Table.from_arrays(cols_data, schema=schema))

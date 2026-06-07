@@ -30,15 +30,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 # Columns that are never treated as LightGBM features.
-# ``aspect`` is reserved because it drives group-key computation in
-# aspect-conditioned staging; it is persisted in bucket parquets so
-# _sort_bucket can use it, then stripped from the write-back.
+# ``aspect`` and ``snapshot_pair`` drive group-key computation and are
+# persisted in bucket parquets so _sort_bucket can use them, then
+# stripped from the write-back.
 _RESERVED_BUCKET_COLS = frozenset(
-    ("protein_accession", "label", "go_term_id", "aspect")
+    ("protein_accession", "label", "go_term_id", "aspect", "snapshot_pair")
 )
 
 
@@ -103,17 +104,33 @@ def _split_to_dict(split: StagedSplit, root: Path) -> dict:
 def _compute_group_edges(
     proteins: np.ndarray,
     aspects: np.ndarray | None,
+    snapshot_pairs: np.ndarray | None = None,
+    plm_ids: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
     """Compute group edges, sizes, and per-group aspect labels.
 
-    When ``aspects`` is provided the group key is ``(protein, aspect)``.
+    Group key selection (F-RERANK-UNIVERSAL.5d):
+    - When ``snapshot_pairs`` and ``plm_ids`` are both provided AND ``aspects``
+      is provided: key is ``(protein, snapshot_pair, aspect, plm_id)``.
+    - When only ``aspects`` is provided (legacy 3-tuple): key is
+      ``(protein, aspect)``.
+    - When none are provided: key is ``protein`` alone (legacy).
+
     Returns ``(edges, group_sizes, aspects_per_group_or_None)``.
     """
-    if aspects is not None:
+    if aspects is not None and snapshot_pairs is not None and plm_ids is not None:
+        # 4-tuple key: (protein, snapshot_pair, aspect, plm_id)
+        prot_change = np.concatenate(([True], proteins[1:] != proteins[:-1]))
+        snap_change = np.concatenate(([True], snapshot_pairs[1:] != snapshot_pairs[:-1]))
+        asp_change = np.concatenate(([True], aspects[1:] != aspects[:-1]))
+        plm_change = np.concatenate(([True], plm_ids[1:] != plm_ids[:-1]))
+        edges = np.flatnonzero(prot_change | snap_change | asp_change | plm_change)
+        aspects_per_group: np.ndarray | None = aspects[edges]
+    elif aspects is not None:
         prot_change = np.concatenate(([True], proteins[1:] != proteins[:-1]))
         asp_change = np.concatenate(([True], aspects[1:] != aspects[:-1]))
         edges = np.flatnonzero(prot_change | asp_change)
-        aspects_per_group: np.ndarray | None = aspects[edges]
+        aspects_per_group = aspects[edges]
     else:
         edges = np.flatnonzero(
             np.concatenate(([True], proteins[1:] != proteins[:-1]))
@@ -125,57 +142,144 @@ def _compute_group_edges(
     return edges, group_sizes, aspects_per_group
 
 
+def _k_collapse_table(
+    sorted_table: "pa.Table",
+) -> "pa.Table":
+    """Within each group, keep ONE row per go_term_id (K-collapse).
+
+    Groups are defined by contiguous identical values of the sort key
+    already applied.  ``go_term_id`` must be present; if it is not, the
+    table is returned unchanged (no-op).
+
+    Only called when ``snapshot_pair`` is present (F-RERANK-UNIVERSAL.5d
+    pooled path), because that is the path where K3/K5/K10 duplicate the
+    same candidate term across three physical sources.
+    """
+    if "go_term_id" not in sorted_table.schema.names:
+        return sorted_table
+    # Identify group key columns that are present.
+    key_cols = ["protein_accession"]
+    if "snapshot_pair" in sorted_table.schema.names:
+        key_cols.append("snapshot_pair")
+    if "aspect" in sorted_table.schema.names:
+        key_cols.append("aspect")
+    # plm_id is a feature int32 column -- include it if present.
+    if "plm_id" in sorted_table.schema.names:
+        key_cols.append("plm_id")
+
+    n = sorted_table.num_rows
+    if n == 0:
+        return sorted_table
+
+    # Build group boundaries from key columns.
+    arrays = {c: sorted_table.column(c).to_numpy(zero_copy_only=False) for c in key_cols}
+    go_arr = sorted_table.column("go_term_id").to_numpy(zero_copy_only=False)
+
+    # First pass: for each group, find duplicate go_term_ids and keep first.
+    # Group boundaries: row i starts a new group if any key col changes.
+    group_start = np.zeros(n, dtype=bool)
+    group_start[0] = True
+    for col_arr in arrays.values():
+        group_start[1:] |= (col_arr[1:] != col_arr[:-1])
+    group_ids = np.cumsum(group_start) - 1  # group index per row
+
+    # Within each group dedup on go_term_id: keep the first occurrence.
+    seen: set = set()
+    keep = np.ones(n, dtype=bool)
+    prev_gid = -1
+    for i in range(n):
+        gid = int(group_ids[i])
+        if gid != prev_gid:
+            seen = set()
+            prev_gid = gid
+        key = (gid, str(go_arr[i]))
+        if key in seen:
+            keep[i] = False
+        else:
+            seen.add(key)
+
+    if keep.all():
+        return sorted_table
+    keep_idx = np.flatnonzero(keep)
+    return sorted_table.take(pa.array(keep_idx))
+
+
+def _build_sort_keys(
+    has_snapshot: bool, has_aspect: bool, has_plm: bool,
+) -> list[tuple[str, str]]:
+    """Return the sort-key list for a bucket based on which columns are present."""
+    if has_snapshot and has_aspect:
+        keys = [
+            ("protein_accession", "ascending"),
+            ("snapshot_pair", "ascending"),
+            ("aspect", "ascending"),
+        ]
+        if has_plm:
+            keys.append(("plm_id", "ascending"))
+        return keys
+    if has_aspect:
+        return [("protein_accession", "ascending"), ("aspect", "ascending")]
+    return [("protein_accession", "ascending")]
+
+
+def _extract_sorted_arrays(
+    t: "pa.Table", has_snapshot: bool, has_aspect: bool, has_plm: bool,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None, np.ndarray | None, np.ndarray | None]:
+    """Extract numpy arrays from a sorted bucket table for group computation."""
+    proteins = t.column("protein_accession").to_numpy(zero_copy_only=False)
+    labels = t.column("label").to_numpy(zero_copy_only=False).astype(np.int8, copy=False)
+    go_terms: np.ndarray | None = (
+        t.column("go_term_id").to_numpy(zero_copy_only=False)
+        if "go_term_id" in t.column_names else None
+    )
+    aspects_arr: np.ndarray | None = (
+        t.column("aspect").to_numpy(zero_copy_only=False) if has_aspect else None
+    )
+    snapshot_pairs_arr: np.ndarray | None = (
+        t.column("snapshot_pair").to_numpy(zero_copy_only=False) if has_snapshot else None
+    )
+    plm_ids_arr: np.ndarray | None = (
+        t.column("plm_id").to_numpy(zero_copy_only=False)
+        if has_plm and has_snapshot else None
+    )
+    return proteins, labels, go_terms, aspects_arr, snapshot_pairs_arr, plm_ids_arr
+
+
 def _sort_bucket(
     path: Path,
 ) -> tuple[
     int, int, np.ndarray, np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None
 ]:
-    """Read one bucket parquet, sort by (protein_accession[, aspect]), write back.
+    """Read one bucket parquet, sort by group key, apply K-collapse, write back.
 
-    When the bucket carries an ``aspect`` column the sort key is
-    ``(protein_accession, aspect)`` and the group key is the combined pair;
-    otherwise the legacy sort/group key is ``protein_accession`` alone.
-
+    Group key (F-RERANK-UNIVERSAL.5d): ``(protein, snapshot_pair, aspect, plm_id)``
+    when all four columns are present; legacy ``(protein, aspect)`` otherwise.
     Returns ``(n_rows, n_groups, group_sizes, labels, proteins_per_group,
     go_terms_or_None, aspects_per_group_or_None)``.
     """
     table = pq.read_table(str(path))
     if table.num_rows == 0:
         path.unlink(missing_ok=True)
-        return (
-            0, 0, np.empty(0, np.int32), np.empty(0, np.int8),
-            np.empty(0, dtype=object), None, None,
-        )
-
-    aspect_conditioned = "aspect" in table.schema.names
-    sort_keys = (
-        [("protein_accession", "ascending"), ("aspect", "ascending")]
-        if aspect_conditioned
-        else [("protein_accession", "ascending")]
-    )
+        return (0, 0, np.empty(0, np.int32), np.empty(0, np.int8),
+                np.empty(0, dtype=object), None, None)
+    names = table.schema.names
+    has_snapshot = "snapshot_pair" in names
+    has_aspect = "aspect" in names
+    has_plm = "plm_id" in names
+    sort_keys = _build_sort_keys(has_snapshot, has_aspect, has_plm)
     sorted_table = table.take(pc.sort_indices(table, sort_keys=sort_keys))
-
-    # Write back only the feature columns (strip all reserved cols).
+    if has_snapshot and has_aspect:
+        sorted_table = _k_collapse_table(sorted_table)
     feat_cols = [c for c in sorted_table.column_names if c not in _RESERVED_BUCKET_COLS]
     pq.write_table(sorted_table.select(feat_cols), str(path), compression="zstd")
-
-    proteins = sorted_table.column("protein_accession").to_numpy(zero_copy_only=False)
-    labels = sorted_table.column("label").to_numpy(zero_copy_only=False).astype(np.int8, copy=False)
-    go_terms: np.ndarray | None = (
-        sorted_table.column("go_term_id").to_numpy(zero_copy_only=False)
-        if "go_term_id" in sorted_table.column_names
-        else None
+    proteins, labels, go_terms, aspects_arr, snapshot_pairs_arr, plm_ids_arr = (
+        _extract_sorted_arrays(sorted_table, has_snapshot, has_aspect, has_plm)
     )
-    aspects_arr = (
-        sorted_table.column("aspect").to_numpy(zero_copy_only=False)
-        if aspect_conditioned
-        else None
+    edges, group_sizes, aspects_per_group = _compute_group_edges(
+        proteins, aspects_arr, snapshot_pairs_arr, plm_ids_arr,
     )
-    edges, group_sizes, aspects_per_group = _compute_group_edges(proteins, aspects_arr)
-    return (
-        len(proteins), len(group_sizes), group_sizes, labels,
-        proteins[edges], go_terms, aspects_per_group,
-    )
+    return (len(proteins), len(group_sizes), group_sizes, labels,
+            proteins[edges], go_terms, aspects_per_group)
 
 
 def _materialise_split(
