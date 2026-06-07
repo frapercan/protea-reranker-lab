@@ -7,12 +7,21 @@
   },
   "offenders": [
     {
+      "key": "file::src/protea_reranker_lab/pooled_staging.py::",
+      "kind": "file",
+      "path": "src/protea_reranker_lab/pooled_staging.py",
+      "name": "",
+      "line": 0,
+      "metric": 856,
+      "threshold": 800
+    },
+    {
       "key": "file::src/protea_reranker_lab/staging.py::",
       "kind": "file",
       "path": "src/protea_reranker_lab/staging.py",
       "name": "",
       "line": 0,
-      "metric": 898,
+      "metric": 894,
       "threshold": 800
     },
     {
@@ -29,7 +38,7 @@
       "kind": "method",
       "path": "src/protea_reranker_lab/runner.py",
       "name": "run_experiment",
-      "line": 81,
+      "line": 83,
       "metric": 92,
       "threshold": 60
     },
@@ -38,7 +47,7 @@
       "kind": "method",
       "path": "src/protea_reranker_lab/splits.py",
       "name": "_materialise_split",
-      "line": 181,
+      "line": 285,
       "metric": 62,
       "threshold": 60
     },
@@ -47,7 +56,7 @@
       "kind": "method",
       "path": "src/protea_reranker_lab/staging.py",
       "name": "_scan_pass0",
-      "line": 109,
+      "line": 107,
       "metric": 70,
       "threshold": 60
     },
@@ -56,7 +65,7 @@
       "kind": "method",
       "path": "src/protea_reranker_lab/staging.py",
       "name": "_cap_oversized_groups",
-      "line": 248,
+      "line": 246,
       "metric": 65,
       "threshold": 60
     },
@@ -65,8 +74,8 @@
       "kind": "method",
       "path": "src/protea_reranker_lab/staging.py",
       "name": "_pass1_route_and_write",
-      "line": 359,
-      "metric": 97,
+      "line": 370,
+      "metric": 85,
       "threshold": 60
     },
     {
@@ -74,7 +83,7 @@
       "kind": "method",
       "path": "src/protea_reranker_lab/staging.py",
       "name": "stage_eval_only",
-      "line": 457,
+      "line": 456,
       "metric": 66,
       "threshold": 60
     },
@@ -83,8 +92,8 @@
       "kind": "method",
       "path": "src/protea_reranker_lab/staging.py",
       "name": "stage_for_training",
-      "line": 629,
-      "metric": 181,
+      "line": 690,
+      "metric": 113,
       "threshold": 60
     },
     {
@@ -92,8 +101,8 @@
       "kind": "method",
       "path": "src/protea_reranker_lab/staging.py",
       "name": "_stream_eval",
-      "line": 812,
-      "metric": 87,
+      "line": 830,
+      "metric": 65,
       "threshold": 60
     },
     {
@@ -119,7 +128,7 @@
       "kind": "params",
       "path": "src/protea_reranker_lab/splits.py",
       "name": "_save_split_arrays",
-      "line": 245,
+      "line": 349,
       "metric": 7,
       "threshold": 6
     },
@@ -128,7 +137,7 @@
       "kind": "params",
       "path": "src/protea_reranker_lab/staging.py",
       "name": "_scan_pass0",
-      "line": 109,
+      "line": 107,
       "metric": 8,
       "threshold": 6
     },
@@ -137,7 +146,7 @@
       "kind": "params",
       "path": "src/protea_reranker_lab/staging.py",
       "name": "_decide_split",
-      "line": 181,
+      "line": 179,
       "metric": 8,
       "threshold": 6
     },
@@ -146,7 +155,7 @@
       "kind": "params",
       "path": "src/protea_reranker_lab/staging.py",
       "name": "_cap_oversized_groups",
-      "line": 248,
+      "line": 246,
       "metric": 7,
       "threshold": 6
     },
@@ -155,8 +164,8 @@
       "kind": "params",
       "path": "src/protea_reranker_lab/staging.py",
       "name": "_pass1_route_and_write",
-      "line": 359,
-      "metric": 8,
+      "line": 370,
+      "metric": 7,
       "threshold": 6
     },
     {
@@ -164,7 +173,7 @@
       "kind": "params",
       "path": "src/protea_reranker_lab/staging.py",
       "name": "stage_eval_only",
-      "line": 457,
+      "line": 456,
       "metric": 8,
       "threshold": 6
     },
@@ -173,7 +182,7 @@
       "kind": "params",
       "path": "src/protea_reranker_lab/staging.py",
       "name": "stage_for_training",
-      "line": 629,
+      "line": 690,
       "metric": 7,
       "threshold": 6
     },
@@ -182,7 +191,7 @@
       "kind": "params",
       "path": "src/protea_reranker_lab/staging.py",
       "name": "_stream_eval",
-      "line": 812,
+      "line": 830,
       "metric": 13,
       "threshold": 6
     }
