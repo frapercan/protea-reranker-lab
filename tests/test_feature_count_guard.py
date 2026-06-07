@@ -1,13 +1,17 @@
-"""Regression guard: feature count must stay at 56 (52 base + 4 lineage).
+"""Regression guard: feature count and pool-context features for protea-contracts v3.
 
-The v27-binary champion (cafaeval Fmax 0.7291) was trained with 56 features
-including the four lineage features from protea_contracts.  Any accidental
-rollback of protea-contracts or removal of the lineage family would silently
-drop the LK/PK cells to incomparable Fmax values, invalidating the thesis
-chapter-6 comparison table.
+History:
+- protea-contracts 4e898af / v0.3.0: 56 features (52 base + 4 lineage_*).
+  These were used by the v27-binary champion (cafaeval Fmax 0.7291).
+- protea-contracts v1.0.0 (F-RERANK-UNIVERSAL.2): 54 features.
+  The 4 lineage_* columns are DEFAULT EXCLUDED from ALL_FEATURES per the
+  leakage ruling in docs/FEATURE_LEAKAGE_AUDIT_UNIVERSAL.md.
+  Two new pool-context features are added:
+    - k_context (numeric, family k_neighborhood): KNN neighbourhood size.
+    - plm_id (categorical, family plm_context): PLM embedding identifier.
 
-This test pins the exact count and the four lineage column names so any
-regression is caught at CI time before a sweep is launched.
+This is an accepted one-way door: phase3a model schema_sha is invalidated
+by the v3 ALL_FEATURES change.  Do not revert to the 56-feature count.
 """
 
 from __future__ import annotations
@@ -15,8 +19,10 @@ from __future__ import annotations
 from protea_contracts import ALL_FEATURES, FEATURE_FAMILIES
 
 
-EXPECTED_TOTAL_FEATURES = 56
-EXPECTED_LINEAGE_FEATURES = [
+# v3 canonical count: 52 (v2 base without lineage_*) + k_context + plm_id = 54
+EXPECTED_TOTAL_FEATURES = 54
+POOL_CONTEXT_FEATURES = ["k_context", "plm_id"]
+LINEAGE_FEATURES = [
     "lineage_is_ancestor_of_known",
     "lineage_is_descendant_of_known",
     "lineage_ancestor_of_count",
@@ -25,57 +31,60 @@ EXPECTED_LINEAGE_FEATURES = [
 
 
 def test_all_features_count() -> None:
-    """ALL_FEATURES must have exactly 56 entries (52 base + 4 lineage).
+    """ALL_FEATURES must have exactly 54 entries (protea-contracts v3 / v1.0.0).
 
-    If this fails it means protea-contracts was rolled back below v0.3.0 or
-    the lineage family was removed.  Restore via:
-      pyproject.toml: protea-contracts @ git+...@v0.3.0
-      then: poetry lock && poetry install
+    54 = 52 (v2 base without lineage_*) + k_context + plm_id.
+
+    If this fails:
+    - A contracts downgrade restored lineage_* (56 features) or removed the
+      pool-context columns (52 features).
+    - Restore with: protea-contracts @ path/to/rerank2-contracts (v1.0.0).
     """
     assert len(ALL_FEATURES) == EXPECTED_TOTAL_FEATURES, (
         f"Feature count regressed: expected {EXPECTED_TOTAL_FEATURES}, "
-        f"got {len(ALL_FEATURES)}.  The 4 lineage features (lineage_*) were "
-        f"likely dropped by a protea-contracts downgrade.  Current ALL_FEATURES "
-        f"has {len(ALL_FEATURES)} entries."
+        f"got {len(ALL_FEATURES)}.  "
+        f"Expected protea-contracts v1.0.0 (v3 schema).  "
+        f"Current ALL_FEATURES: {ALL_FEATURES!r}"
     )
 
 
-def test_lineage_features_present_in_all_features() -> None:
-    """Each lineage column must appear in ALL_FEATURES."""
-    missing = [f for f in EXPECTED_LINEAGE_FEATURES if f not in ALL_FEATURES]
+def test_pool_context_features_in_all_features() -> None:
+    """k_context and plm_id must appear in ALL_FEATURES (v3+)."""
+    missing = [f for f in POOL_CONTEXT_FEATURES if f not in ALL_FEATURES]
     assert not missing, (
-        f"Lineage features missing from ALL_FEATURES: {missing}.  "
-        f"Bump protea-contracts to >=v0.3.0."
+        f"Pool-context features missing from ALL_FEATURES: {missing}.  "
+        f"Requires protea-contracts v1.0.0."
     )
 
 
-def test_lineage_family_registered() -> None:
-    """'lineage' must be a registered feature family."""
-    assert "lineage" in FEATURE_FAMILIES, (
-        "'lineage' family not found in FEATURE_FAMILIES.  "
-        "Requires protea-contracts>=v0.3.0."
+def test_plm_context_family_registered() -> None:
+    """'plm_context' must be a registered feature family (v3+)."""
+    assert "plm_context" in FEATURE_FAMILIES, (
+        "'plm_context' family not found in FEATURE_FAMILIES.  "
+        "Requires protea-contracts v1.0.0."
     )
+    assert FEATURE_FAMILIES["plm_context"] == ["plm_id"]
 
 
-def test_lineage_family_members() -> None:
-    """The lineage family must declare exactly the 4 canonical columns."""
-    actual = FEATURE_FAMILIES.get("lineage", [])
-    assert sorted(actual) == sorted(EXPECTED_LINEAGE_FEATURES), (
-        f"lineage family mismatch: expected {sorted(EXPECTED_LINEAGE_FEATURES)}, "
-        f"got {sorted(actual)}"
+def test_k_neighborhood_family_registered() -> None:
+    """'k_neighborhood' must be a registered feature family (v3+)."""
+    assert "k_neighborhood" in FEATURE_FAMILIES, (
+        "'k_neighborhood' family not found in FEATURE_FAMILIES.  "
+        "Requires protea-contracts v1.0.0."
     )
+    assert FEATURE_FAMILIES["k_neighborhood"] == ["k_context"]
 
 
-def test_lineage_features_are_last_numeric() -> None:
-    """Lineage columns must appear as a contiguous block at the tail of ALL_FEATURES.
+def test_lineage_features_excluded_from_all_features() -> None:
+    """lineage_* must NOT appear in ALL_FEATURES (DEFAULT EXCLUDE ruling).
 
-    They must not be interleaved or moved, as LightGBM boosters are sensitive
-    to column ordering and any position change invalidates saved models.
+    The leakage ruling in docs/FEATURE_LEAKAGE_AUDIT_UNIVERSAL.md mandates
+    DEFAULT EXCLUDE for the 4 lineage columns pending a dedicated ablation.
+    If this test fails, a contracts change re-added them.
     """
-    indices = [ALL_FEATURES.index(f) for f in EXPECTED_LINEAGE_FEATURES]
-    # All four must be present (index() raises ValueError otherwise)
-    assert len(indices) == 4
-    # They must be contiguous
-    assert indices == list(range(min(indices), min(indices) + 4)), (
-        f"Lineage features are not contiguous in ALL_FEATURES: positions {indices}"
+    present = [f for f in LINEAGE_FEATURES if f in ALL_FEATURES]
+    assert not present, (
+        f"Lineage features re-appeared in ALL_FEATURES: {present}.  "
+        f"The leakage ruling requires DEFAULT EXCLUDE until a controlled "
+        f"ablation clears them.  See docs/FEATURE_LEAKAGE_AUDIT_UNIVERSAL.md."
     )
