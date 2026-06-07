@@ -6,6 +6,8 @@ within the smell budget. Not part of the public API.
 
 from __future__ import annotations
 
+import dataclasses
+import json
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,6 +41,7 @@ class TrainResult:
     eval_pq: Path
     primary_plm: str
     primary_k: int
+    staging_meta: dict = dataclasses.field(default_factory=dict)
 
 
 @dataclass
@@ -135,7 +138,9 @@ def _build_fit_ctx(
     """Build the FitContext for the IA feval path."""
     if cfg.ia_feval_mode not in ("feval", "combined") or val_split is None:
         return FitContext()
-    group_sizes = val_split.groups
+    group_sizes: np.ndarray = val_split.groups  # type: ignore[assignment]
+    if group_sizes is None:
+        return FitContext()
     offsets = np.zeros(len(group_sizes), dtype=np.int64)
     if len(group_sizes) > 1:
         np.cumsum(group_sizes[:-1], out=offsets[1:])
@@ -148,7 +153,7 @@ def _build_fit_ctx(
             (ia_table.get(str(g), 0.0) for g in val_go),
             dtype=np.float64, count=len(val_go),
         )
-        edges = np.concatenate(([0], np.cumsum(group_sizes)))
+        edges: np.ndarray = np.concatenate(([0], np.cumsum(group_sizes)))
         ia_per_group = np.array([
             float(ia_flat[edges[i]:edges[i + 1]].mean())
             for i in range(len(group_sizes))
@@ -235,21 +240,25 @@ def _fit_and_predict(
     ia_path_resolved: Path,
 ) -> tuple[Any, dict, np.ndarray]:
     """Fit booster and predict eval. Returns (booster, train_metrics, raw_scores)."""
-    cat_cols = [c for c in ctx.categorical_cols if c in set(ctx.feature_cols)]
+    # Use stage.feature_cols: the authoritative list of columns written into
+    # the bucket parquets (reserved cols like 'aspect' were stripped during
+    # staging to avoid schema duplicates).
+    feat_cols = stage.feature_cols
+    cat_cols = [c for c in stage.categorical_cols if c in set(feat_cols)]
     train_labels = np.load(stage.train.labels_path)
     train_w, val_w, _ = _build_ia_weights_pair(
         cfg, ia_path_resolved, stage, train_labels, ctx.ia_table
     )
-    train_split, val_split = _build_splits(stage, ctx.feature_cols, train_w, val_w)
+    train_split, val_split = _build_splits(stage, feat_cols, train_w, val_w)
     fit_ctx = _build_fit_ctx(cfg, stage, ctx.ia_table, ia_path_resolved, val_split)
     booster, train_metrics = fit(
         train_split, val_split, cfg,
-        feature_names=ctx.feature_cols,
+        feature_names=feat_cols,
         categorical_features=cat_cols,
         fit_ctx=fit_ctx,
     )
     eval_seq = ParquetFeatureSequence(
-        [str(p) for p in stage.eval.bucket_paths], ctx.feature_cols
+        [str(p) for p in stage.eval.bucket_paths], feat_cols
     )
     raw_scores = predict_streaming(booster, eval_seq)
     return booster, train_metrics, raw_scores
@@ -269,6 +278,14 @@ def train_category(ctx: CategoryCtx) -> TrainResult:
     eval_labels = np.load(stage.eval.labels_path)
     eval_groups = np.load(stage.eval.groups_path)
     eval_proteins = np.load(stage.eval.proteins_path, allow_pickle=True)
+    # Read staging meta BEFORE rmtree (pooled_staging_meta.json lives in staging dir).
+    staging_meta: dict = {}
+    staging_meta_path = ctx.staging_root / ctx.category / "pooled_staging_meta.json"
+    if staging_meta_path.exists():
+        try:
+            staging_meta = json.loads(staging_meta_path.read_text())
+        except Exception:
+            pass
     shutil.rmtree(ctx.staging_root / ctx.category, ignore_errors=True)
     fi = {k: float(v) for k, v in sorted(
         train_metrics.get("feature_importance", {}).items(), key=lambda kv: -kv[1]
@@ -279,4 +296,5 @@ def train_category(ctx: CategoryCtx) -> TrainResult:
         best_iteration=int(train_metrics.get("best_iteration", 0)),
         feature_importance=fi, eval_pq=eval_pq,
         primary_plm=primary_src.plm_id, primary_k=primary_src.k_context,
+        staging_meta=staging_meta,
     )

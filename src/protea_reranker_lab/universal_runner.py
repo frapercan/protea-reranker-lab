@@ -21,6 +21,8 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import logging
+import resource
 import shutil
 import subprocess
 import tempfile
@@ -52,6 +54,8 @@ from .multi_source import MultiManifestSpec
 from .propagation import load_parent_map
 from .runner import _environment_info
 from .universal_train import CategoryCtx as TrainCategoryCtx, train_category
+
+log = logging.getLogger(__name__)
 
 _DEFAULT_PROTEA_PYTHON = (
     "/home/frapercan/Thesis2/repositories/PROTEA/.venv/bin/python"
@@ -209,12 +213,23 @@ def _build_feature_cols(
 ) -> tuple[list[str], list[str]]:
     """Return (feature_cols, categorical_cols) with optional plm_id drop."""
     drop_set: set[str] = set()
+    if drop_plm_id:
+        drop_set.add("plm_id")
     for fam in spec.model_defaults.get("drop_feature_family", []):
         drop_set.update(FEATURE_FAMILIES.get(fam, []))
-    extra_cat = [] if drop_plm_id else ["plm_id"]
-    extra_num = ["k_context"]
-    numeric_cols = [c for c in list(NUMERIC_FEATURES) + extra_num if c not in drop_set]
-    categorical_cols = [c for c in list(CATEGORICAL_FEATURES) + extra_cat if c not in drop_set]
+    # plm_id + k_context are universal-specific axes; deduplicate to avoid
+    # double-listing if already present in the contracts feature lists.
+    seen: set[str] = set()
+    numeric_cols: list[str] = []
+    for c in list(NUMERIC_FEATURES) + ["k_context"]:
+        if c not in drop_set and c not in seen:
+            numeric_cols.append(c)
+            seen.add(c)
+    categorical_cols: list[str] = []
+    for c in list(CATEGORICAL_FEATURES) + ["plm_id"]:
+        if c not in drop_set and c not in seen:
+            categorical_cols.append(c)
+            seen.add(c)
     return numeric_cols + categorical_cols, categorical_cols
 
 
@@ -531,6 +546,14 @@ def _run_train_step(ctx: _TrainStepCtx) -> Any:
     ctx.report["split"] = {"category": ctx.spec.train_cell, "n_eval": len(result.eval_labels)}
     ctx.report["feature_importance"] = result.feature_importance
     ctx.report["best_iteration"] = result.best_iteration
+    if result.staging_meta:
+        ctx.report["staging"] = result.staging_meta
+        log.info(
+            "[train_step] n_train_rows=%d downsample_factor=%.3f staging_rss_gb=%.2f",
+            result.staging_meta.get("n_total_train_rows", -1),
+            result.staging_meta.get("downsample_factor", 1.0),
+            result.staging_meta.get("peak_rss_gb", float("nan")),
+        )
     _dump_report(ctx.out_dir, ctx.report)
     return result
 
@@ -553,8 +576,17 @@ def _save_predictions(
     pq.write_table(pred_table, str(out_dir / "predictions.parquet"), compression="zstd")
 
 
+def _peak_rss_gb() -> float:
+    """Return peak RSS of the current process in GB (Linux maxrss in kB)."""
+    try:
+        return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 * 1024)
+    except Exception:
+        return float("nan")
+
+
 def run_universal(spec: UniversalRunSpec) -> dict[str, Any]:
     """Run the full universal booster pipeline and return the run.json report dict."""
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     run_id = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S')}_{spec.name}"
     out_dir = spec.out_dir or Path("runs") / run_id
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -599,6 +631,8 @@ def run_universal(spec: UniversalRunSpec) -> dict[str, Any]:
     finally:
         report["finished_at"] = _iso_now()
         report["duration_s"] = round(time.monotonic() - t0, 2)
+        report["peak_rss_gb"] = _peak_rss_gb()
+        log.info("[universal] peak_rss_gb=%.2f duration_s=%.0f", report["peak_rss_gb"], report["duration_s"])
         _dump_report(out_dir, report)
         shutil.rmtree(staging_root, ignore_errors=True)
     return report
