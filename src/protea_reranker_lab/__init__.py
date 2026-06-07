@@ -19,6 +19,7 @@ from .experiment import (
 from .runner import resolve_dataset, run_experiment
 from .sequences import ParquetFeatureSequence
 from .staging import StageResult, stage_for_training
+from .recall import RecallRecord, compute_recall, compute_recall_table
 
 __version__ = "0.3.0"
 
@@ -37,7 +38,10 @@ __all__ = [
     "SweepRef",
     "TrainingSpec",
     "ParquetFeatureSequence",
+    "RecallRecord",
     "StageResult",
+    "compute_recall",
+    "compute_recall_table",
     "resolve_dataset",
     "run_experiment",
     "stage_for_training",

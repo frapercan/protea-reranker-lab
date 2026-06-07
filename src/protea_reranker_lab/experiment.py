@@ -78,6 +78,24 @@ class TrainingSpec(BaseModel):
     # manifest and propagates labels to GO ancestors (CAFA True-Path-Rule).
     propagate_labels: bool = False
 
+    # VALID / TEST window fields (F-RERANK-UNIVERSAL.3)
+    # ---------------------------------------------------
+    # train_snapshot_pairs: restrict training to these snapshot pairs.
+    #   None = all pairs in the dataset.
+    # eval_snapshot_pair: the VALID window for selection (e.g. "v226-v227").
+    # test_snapshot_pairs: multi-window TEST curve for evaluate-once reporting
+    #   (e.g. ["v227-v228", "v227-v229", "v227-v230"]).  None = no TEST window.
+    train_snapshot_pairs: list[str] | None = None
+    eval_snapshot_pair: str | None = None
+    test_snapshot_pairs: list[str] | None = None
+
+    # Aspect-conditioned staging (F-RERANK-UNIVERSAL.3)
+    # ---------------------------------------------------
+    # When True, the cell aspect is NOT used as a filter; all aspects flow
+    # through together, ``aspect`` is a live conditioning feature, and
+    # LambdaRank groups are per-(protein, aspect) pairs.
+    aspect_conditioned: bool = False
+
     model_config = {"frozen": True}
 
     @model_validator(mode="after")

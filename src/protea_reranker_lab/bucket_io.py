@@ -69,11 +69,24 @@ def _build_pass1_schema(
     categorical_cols: list[str],
     *,
     carry_go_terms: bool = False,
+    carry_aspect: bool = False,
 ) -> pa.Schema:
+    """Build the PyArrow schema for one pass-1 (or eval) bucket parquet.
+
+    Parameters
+    ----------
+    feature_cols:      ordered list of feature columns (numeric + categorical).
+    categorical_cols:  subset of ``feature_cols`` that are encoded as int32.
+    carry_go_terms:    include ``go_term_id`` (string) for IA sample weighting.
+    carry_aspect:      include ``aspect`` (string) for aspect-conditioned
+                       LambdaRank grouping (F-RERANK-UNIVERSAL.3).
+    """
     fields = [pa.field("protein_accession", pa.string()),
               pa.field("label", pa.int8())]
     if carry_go_terms:
         fields.append(pa.field("go_term_id", pa.string()))
+    if carry_aspect:
+        fields.append(pa.field("aspect", pa.string()))
     cat_set = set(categorical_cols)
     for c in feature_cols:
         if c in cat_set:
