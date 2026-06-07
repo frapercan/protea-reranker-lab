@@ -1448,8 +1448,10 @@ pyarrow = ">=14"
 pydantic = ">=2.5"
 
 [package.source]
-type = "directory"
-url = "../rerank2-contracts"
+type = "git"
+url = "https://github.com/frapercan/protea-contracts.git"
+reference = "69f8b1c9caa72ccf8f7c71720f7cfa9fc1f637b7"
+resolved_reference = "69f8b1c9caa72ccf8f7c71720f7cfa9fc1f637b7"
 
 [[package]]
 name = "protobuf"
@@ -2397,4 +2399,4 @@ dev = ["mypy", "pytest"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<4.0"
-content-hash = "71fc671209202abab8f2b3d600299df19af9907f4f1a9f4e75fba44c3b285743"
+content-hash = "f8b706e293fe1a535b83f76e43b9792c0ee6efbf5ededa1a7746d5fa50507ca5"

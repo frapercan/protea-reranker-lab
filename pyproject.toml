@@ -12,7 +12,7 @@ dependencies = [
     "scikit-learn>=1.4",
     "wandb>=0.16",
     "pyyaml>=6",
-    "protea-contracts @ file:///home/frapercan/Thesis2/worktrees/rerank2-contracts",
+    "protea-contracts @ git+https://github.com/frapercan/protea-contracts.git@69f8b1c9caa72ccf8f7c71720f7cfa9fc1f637b7",
     "matplotlib>=3.8",
 ]
 
