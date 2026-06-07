@@ -56,7 +56,6 @@ import json
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-
 import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -74,7 +73,6 @@ from .bucket_io import (
 from .data import iter_batches
 from .propagation import load_parent_map, propagate_labels_to_ancestors
 from .splits import StagedSplit, StageResult, _materialise_split
-
 
 @dataclass
 class SourceScan:
@@ -593,7 +591,7 @@ def _propagate_train_labels(
 def _eval_override_labels(
     *,
     source_eval_parquet: Path,
-    cat: str,
+    cat: str | None,
     asp: str | None,
     plan: StagePlan,
     propagation_stats: dict[str, int],

@@ -17,7 +17,8 @@ from .ia_weighting import ia_weights, load_ia_table
 from .reranker import FitContext, SplitArrays, TrainConfig, fit, predict_streaming
 from .runner import _build_train_config
 from .sequences import ParquetFeatureSequence
-from .staging import StagePlan, stage_for_training
+from .pooled_staging import stage_for_training_pooled
+from .staging import StagePlan
 
 if TYPE_CHECKING:
     from .multi_source import MultiManifestSpec
@@ -192,13 +193,18 @@ def _build_splits(
 
 
 def _stage_category(ctx: CategoryCtx, cfg: TrainConfig) -> Any:
-    """Stage train/eval data for one category. Returns stage result."""
+    """Stage train/eval data for all pooled sources. Returns stage result.
+
+    Uses :func:`stage_for_training_pooled` to stream ALL 24 v226-lineage
+    manifests (8 PLM x K{3,5,10}) through shared bucket writers without
+    writing a physical combined parquet.  The eval split is taken from the
+    primary source (prot_t5 K10 or best available).
+    """
     primary_src = _pick_primary_source(ctx.multi_spec)
-    train_pq = primary_src.parquet_dir / "train.parquet"
     eval_pq = primary_src.parquet_dir / "eval.parquet"
-    if not train_pq.exists() or not eval_pq.exists():
+    if not eval_pq.exists():
         raise FileNotFoundError(
-            f"Primary source for '{ctx.category}' missing parquet: "
+            f"Primary source for '{ctx.category}' missing eval parquet: "
             f"{primary_src.parquet_dir}"
         )
     plan = StagePlan(
@@ -212,10 +218,9 @@ def _stage_category(ctx: CategoryCtx, cfg: TrainConfig) -> Any:
     )
     stage_dir = ctx.staging_root / ctx.category
     cat_cols = [c for c in ctx.categorical_cols if c in set(ctx.feature_cols)]
-    return stage_for_training(
-        source_train_parquet=train_pq,
-        source_eval_parquet=eval_pq,
-        cell=(ctx.category, "all"),
+    return stage_for_training_pooled(
+        multi_spec=ctx.multi_spec,
+        eval_source=primary_src,
         feature_cols=ctx.feature_cols,
         categorical_cols=cat_cols,
         out_dir=stage_dir,
