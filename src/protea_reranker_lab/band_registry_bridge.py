@@ -258,6 +258,81 @@ def _find_obo_file(band: Band) -> Path | None:
     return None
 
 
+def _resolve_ia_path(
+    band: Band, env_prefix: str, ia_path: Path | str | None
+) -> Path:
+    """Resolve the IA file path for ``band``, then validate its token.
+
+    Precedence: explicit ``ia_path`` keyword > ``LAB_IA_<BAND>`` env var >
+    search-list discovery.  Raises ``FileNotFoundError`` when the file is
+    absent and ``BandMismatchError`` when the token is cross-band.
+    """
+    ia: Path
+    if ia_path is not None:
+        ia = Path(ia_path)
+    else:
+        env_ia = os.environ.get(f"LAB_IA_{env_prefix}")
+        if env_ia:
+            ia = Path(env_ia)
+        else:
+            found_ia = _find_ia_file(band)
+            if found_ia is None:
+                raise FileNotFoundError(
+                    f"No IA file found for band {band.name!r}. "
+                    f"Expected tokens: {sorted(band.ia_tokens)}. "
+                    f"Searched: {[str(r) for r in IA_SEARCH_ROOTS]}. "
+                    f"Set LAB_IA_{env_prefix}=/path/to/IA.tsv to override."
+                )
+            ia = found_ia
+
+    if not ia.exists():
+        raise FileNotFoundError(
+            f"IA file {ia} does not exist (resolved for band {band.name!r})."
+        )
+    token = ia_token(str(ia))
+    if not band.accepts_ia_token(token):
+        other = band_for_ia_token(token)
+        suffix = f" (it belongs to band {other!r})" if other else ""
+        raise BandMismatchError(
+            f"IA file {ia.name!r} is not canonical for band {band.name!r}"
+            f"{suffix}. Canonical IA tokens: {sorted(band.ia_tokens)}."
+        )
+    return ia
+
+
+def _resolve_obo_path(
+    band: Band, env_prefix: str, obo_path: Path | str | None
+) -> Path:
+    """Resolve the OBO file path for ``band``.
+
+    Precedence: explicit ``obo_path`` keyword > ``LAB_OBO_<BAND>`` env var >
+    search-list discovery.  Raises ``FileNotFoundError`` when the file is
+    absent.
+    """
+    obo: Path
+    if obo_path is not None:
+        obo = Path(obo_path)
+    else:
+        env_obo = os.environ.get(f"LAB_OBO_{env_prefix}")
+        if env_obo:
+            obo = Path(env_obo)
+        else:
+            found_obo = _find_obo_file(band)
+            if found_obo is None:
+                raise FileNotFoundError(
+                    f"No OBO file found for band {band.name!r}. "
+                    f"Searched: {[str(r) for r in OBO_SEARCH_ROOTS]}. "
+                    f"Set LAB_OBO_{env_prefix}=/path/to/go.obo to override."
+                )
+            obo = found_obo
+
+    if not obo.exists():
+        raise FileNotFoundError(
+            f"OBO file {obo} does not exist (resolved for band {band.name!r})."
+        )
+    return obo
+
+
 def resolve_band_artifacts(
     band_or_cutoff: str,
     *,
@@ -282,62 +357,6 @@ def resolve_band_artifacts(
     """
     band = resolve_band(band_or_cutoff)
     env_prefix = band.name.upper().replace("-", "_")
-
-    # IA resolution
-    ia: Path
-    if ia_path is not None:
-        ia = Path(ia_path)
-    else:
-        env_ia = os.environ.get(f"LAB_IA_{env_prefix}")
-        if env_ia:
-            ia = Path(env_ia)
-        else:
-            found_ia = _find_ia_file(band)
-            if found_ia is None:
-                raise FileNotFoundError(
-                    f"No IA file found for band {band.name!r}. "
-                    f"Expected tokens: {sorted(band.ia_tokens)}. "
-                    f"Searched: {[str(r) for r in IA_SEARCH_ROOTS]}. "
-                    f"Set LAB_IA_{env_prefix}=/path/to/IA.tsv to override."
-                )
-            ia = found_ia
-
-    if not ia.exists():
-        raise FileNotFoundError(
-            f"IA file {ia} does not exist (resolved for band {band.name!r})."
-        )
-
-    # Validate IA token against the declared band
-    token = ia_token(str(ia))
-    if not band.accepts_ia_token(token):
-        other = band_for_ia_token(token)
-        suffix = f" (it belongs to band {other!r})" if other else ""
-        raise BandMismatchError(
-            f"IA file {ia.name!r} is not canonical for band {band.name!r}"
-            f"{suffix}. Canonical IA tokens: {sorted(band.ia_tokens)}."
-        )
-
-    # OBO resolution
-    obo: Path
-    if obo_path is not None:
-        obo = Path(obo_path)
-    else:
-        env_obo = os.environ.get(f"LAB_OBO_{env_prefix}")
-        if env_obo:
-            obo = Path(env_obo)
-        else:
-            found_obo = _find_obo_file(band)
-            if found_obo is None:
-                raise FileNotFoundError(
-                    f"No OBO file found for band {band.name!r}. "
-                    f"Searched: {[str(r) for r in OBO_SEARCH_ROOTS]}. "
-                    f"Set LAB_OBO_{env_prefix}=/path/to/go.obo to override."
-                )
-            obo = found_obo
-
-    if not obo.exists():
-        raise FileNotFoundError(
-            f"OBO file {obo} does not exist (resolved for band {band.name!r})."
-        )
-
+    ia = _resolve_ia_path(band, env_prefix, ia_path)
+    obo = _resolve_obo_path(band, env_prefix, obo_path)
     return obo, ia

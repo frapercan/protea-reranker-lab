@@ -229,9 +229,11 @@ def test_f_micro_w_golden_prot_t5_k3() -> None:
     2. eval_f_micro_w returns non-None f_micro_w for every NK+LK cell.
     3. The mean f_micro_w equals _BASELINE_MEAN_F_MICRO_W within tolerance.
     """
-    from protea_reranker_lab.evaluate import eval_f_micro_w
+    from protea_reranker_lab.evaluate import BandArtifacts, EvalOptions, eval_f_micro_w
 
     obo, ia = resolve_band_artifacts("v227")
+    artifacts = BandArtifacts(obo_path=obo, ia_path=ia)
+    eval_opts = EvalOptions(protea_python=_PROTEA_PY)
 
     values: list[float] = []
     for cell in _NK_LK_CELLS:
@@ -242,8 +244,8 @@ def test_f_micro_w_golden_prot_t5_k3() -> None:
         namespace = _ASPECT_TO_NS[asp]
 
         result = eval_f_micro_w(
-            pred_tsv, gt_tsv, obo, ia, namespace,
-            protea_python=_PROTEA_PY,
+            pred_tsv, gt_tsv, artifacts, namespace,
+            options=eval_opts,
         )
         fw = result.get("f_micro_w")
         assert fw is not None, (

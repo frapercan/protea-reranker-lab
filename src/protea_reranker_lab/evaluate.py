@@ -13,12 +13,71 @@ the band-registry bridge so the IA is never hardcoded.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import tempfile
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypedDict
 
 import numpy as np
+
+_DEFAULT_PROTEA_PYTHON = (
+    "/home/frapercan/Thesis2/repositories/PROTEA/.venv/bin/python"
+)
+
+
+@dataclass(frozen=True)
+class PredictionArrays:
+    """Flat row-aligned arrays for one prediction cell.
+
+    All arrays must share the same length (one row per protein-term pair).
+    ``proteins`` and ``go_terms`` are string arrays; ``scores`` and
+    ``labels`` are float/int arrays aligned to the same rows.
+    """
+
+    proteins: np.ndarray
+    go_terms: np.ndarray
+    scores: np.ndarray
+    labels: np.ndarray
+
+
+@dataclass(frozen=True)
+class BandArtifacts:
+    """Resolved (OBO path, IA path) pair for one evaluation band.
+
+    Construct directly or via
+    :func:`~protea_reranker_lab.band_registry_bridge.resolve_band_artifacts`,
+    which returns a ``(obo_path, ia_path)`` tuple that can be unpacked as
+    ``BandArtifacts(*resolve_band_artifacts("v227"))``.
+    """
+
+    obo_path: Path
+    ia_path: Path
+
+
+@dataclass(frozen=True)
+class EvalOptions:
+    """Cafaeval subprocess options bundled for :func:`eval_f_micro_w`.
+
+    All fields are optional. ``protea_python`` defaults to the
+    ``PROTEA_PYTHON`` environment variable, then the PROTEA venv default.
+    ``work_dir`` pins the temporary working directory (no cleanup);
+    leave as ``None`` to let the function create a throwaway temp dir.
+    """
+
+    protea_python: Path | None = field(default=None)
+    timeout: int = field(default=900)
+    work_dir: Path | None = field(default=None)
+
+    def resolved_python(self) -> Path:
+        """Return the effective Python interpreter path."""
+        if self.protea_python is not None:
+            return self.protea_python
+        env_py = os.environ.get("PROTEA_PYTHON")
+        if env_py:
+            return Path(env_py)
+        return Path(_DEFAULT_PROTEA_PYTHON)
 
 
 def fmax_per_protein_group(
@@ -116,15 +175,71 @@ _ASPECT_TO_NS = {
 }
 
 
+def _run_cafaeval_subprocess(
+    pred_tsv: Path,
+    gt_tsv: Path,
+    artifacts: BandArtifacts,
+    options: EvalOptions,
+) -> dict:
+    """Stage files, invoke the cafaeval driver subprocess, return raw JSON.
+
+    Creates a temporary directory, copies ``pred_tsv`` into the per-set
+    ``pred_dir/`` subdirectory cafaeval requires, writes a driver script,
+    and runs it under ``options.resolved_python()``.  Raises
+    ``RuntimeError`` on non-zero exit.
+    """
+    with tempfile.TemporaryDirectory(prefix="lab_eval_") as tmp_str:
+        tmp = Path(tmp_str)
+        pred_dir = tmp / "pred_dir"
+        pred_dir.mkdir()
+        # cafaeval expects exactly one TSV per prediction set in pred_dir.
+        (pred_dir / "predictions.tsv").write_bytes(pred_tsv.read_bytes())
+        out_json = tmp / "out.json"
+        driver = tmp / "_driver.py"
+        driver.write_text(
+            _CAFAEVAL_DRIVER_SRC.format(
+                obo=str(artifacts.obo_path),
+                pred_dir=str(pred_dir),
+                gt=str(gt_tsv),
+                ia=str(artifacts.ia_path),
+                out_json=str(out_json),
+            )
+        )
+        proc = subprocess.run(
+            [str(options.resolved_python()), str(driver)],
+            capture_output=True,
+            text=True,
+            timeout=options.timeout,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"cafaeval subprocess failed (rc={proc.returncode}):\n"
+                f"{proc.stderr[-600:]}"
+            )
+        return json.loads(out_json.read_text())  # type: ignore[no-any-return]
+
+
+def _pick_metric(
+    raw: dict, namespace: str, kind: str, col: str
+) -> float | None:
+    """Extract a scalar metric for ``namespace`` from cafaeval raw output."""
+    for rec in raw.get(kind, []):
+        ns = rec.get("ns") or rec.get("namespace") or ""
+        if ns == namespace and rec.get(col) is not None:
+            try:
+                return float(rec[col])
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
 def eval_f_micro_w(
     pred_tsv: Path,
     gt_tsv: Path,
-    obo_path: Path,
-    ia_path: Path,
+    artifacts: BandArtifacts,
     namespace: str,
     *,
-    protea_python: Path | None = None,
-    timeout: int = 900,
+    options: EvalOptions | None = None,
 ) -> FMicroWResult:
     """Run cafaeval ia= and return per-namespace IA-weighted metrics.
 
@@ -137,21 +252,16 @@ def eval_f_micro_w(
         CAFA-format prediction file (protein TAB go TAB score, no header).
     gt_tsv:
         Ground-truth file (protein TAB go, positives only, no header).
-    obo_path:
-        Path to the GO OBO file congruent with the evaluation band.
-    ia_path:
-        Path to the IA TSV congruent with the evaluation band. NEVER pass
-        a hardcoded path here; resolve via :func:`resolve_band_artifacts`.
+    artifacts:
+        Resolved ``BandArtifacts`` (obo_path, ia_path) for the evaluation
+        band.  Obtain via
+        ``BandArtifacts(*resolve_band_artifacts("v227"))``.
     namespace:
         One of ``"molecular_function"``, ``"biological_process"``,
         ``"cellular_component"`` -- the namespace to extract metrics for.
-    protea_python:
-        Path to the Python interpreter in the PROTEA venv (where
-        cafaeval-protea is installed).  Defaults to
-        ``PROTEA_PYTHON`` env var, then
-        ``/home/frapercan/Thesis2/repositories/PROTEA/.venv/bin/python``.
-    timeout:
-        Subprocess timeout in seconds (default 900).
+    options:
+        ``EvalOptions`` controlling the Python interpreter and timeout.
+        Defaults to ``EvalOptions()`` when ``None``.
 
     Returns
     -------
@@ -159,82 +269,28 @@ def eval_f_micro_w(
     (values may be ``None`` if cafaeval produced no output for the
     requested namespace).
     """
-    import os
-
-    if protea_python is None:
-        env_py = os.environ.get("PROTEA_PYTHON")
-        if env_py:
-            protea_python = Path(env_py)
-        else:
-            protea_python = Path(
-                "/home/frapercan/Thesis2/repositories/PROTEA/.venv/bin/python"
-            )
-
-    with tempfile.TemporaryDirectory(prefix="lab_eval_") as tmp_str:
-        tmp = Path(tmp_str)
-        pred_dir = tmp / "pred_dir"
-        pred_dir.mkdir()
-        # cafaeval expects exactly one TSV per prediction set in pred_dir.
-        (pred_dir / "predictions.tsv").write_bytes(pred_tsv.read_bytes())
-        out_json = tmp / "out.json"
-        driver = tmp / "_driver.py"
-        driver.write_text(
-            _CAFAEVAL_DRIVER_SRC.format(
-                obo=str(obo_path),
-                pred_dir=str(pred_dir),
-                gt=str(gt_tsv),
-                ia=str(ia_path),
-                out_json=str(out_json),
-            )
-        )
-        proc = subprocess.run(
-            [str(protea_python), str(driver)],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        if proc.returncode != 0:
-            raise RuntimeError(
-                f"cafaeval subprocess failed (rc={proc.returncode}):\n"
-                f"{proc.stderr[-600:]}"
-            )
-        raw = json.loads(out_json.read_text())
-
-    def _pick(kind: str, col: str) -> float | None:
-        for rec in raw.get(kind, []):
-            ns = rec.get("ns") or rec.get("namespace") or ""
-            if ns == namespace and rec.get(col) is not None:
-                try:
-                    return float(rec[col])
-                except (TypeError, ValueError):
-                    return None
-        return None
-
+    opts = options if options is not None else EvalOptions()
+    raw = _run_cafaeval_subprocess(pred_tsv, gt_tsv, artifacts, opts)
     return FMicroWResult(
-        f_micro_w=_pick("f_micro_w", "f_micro_w"),
-        f_micro=_pick("f_micro", "f_micro"),
-        f_w=_pick("f_w", "f_w"),
-        fmax=_pick("f", "f"),
+        f_micro_w=_pick_metric(raw, namespace, "f_micro_w", "f_micro_w"),
+        f_micro=_pick_metric(raw, namespace, "f_micro", "f_micro"),
+        f_w=_pick_metric(raw, namespace, "f_w", "f_w"),
+        fmax=_pick_metric(raw, namespace, "f", "f"),
     )
 
 
 def eval_f_micro_w_from_arrays(
-    proteins: np.ndarray,
-    go_terms: np.ndarray,
-    scores: np.ndarray,
-    labels: np.ndarray,
-    obo_path: Path,
-    ia_path: Path,
+    arrays: PredictionArrays,
+    artifacts: BandArtifacts,
     aspect: str,
     *,
-    protea_python: Path | None = None,
-    timeout: int = 900,
-    work_dir: Path | None = None,
+    options: EvalOptions | None = None,
 ) -> FMicroWResult:
     """Convenience wrapper: build TSVs from arrays and call :func:`eval_f_micro_w`.
 
     ``aspect`` is one of ``"mfo"``, ``"bpo"``, ``"cco"``; the namespace is
-    looked up via the ``_ASPECT_TO_NS`` table.
+    looked up via the ``_ASPECT_TO_NS`` table.  Pass an :class:`EvalOptions`
+    instance (with ``work_dir`` set) to pin the working directory.
     """
     namespace = _ASPECT_TO_NS.get(aspect)
     if namespace is None:
@@ -242,10 +298,11 @@ def eval_f_micro_w_from_arrays(
             f"Unknown aspect {aspect!r}; must be one of {list(_ASPECT_TO_NS)}"
         )
 
+    opts = options if options is not None else EvalOptions()
     ctx = (
         tempfile.TemporaryDirectory(prefix="lab_eval_arrays_")
-        if work_dir is None
-        else _NullContext(work_dir)
+        if opts.work_dir is None
+        else _NullContext(opts.work_dir)
     )
     with ctx as tmp_str:
         tmp = Path(tmp_str)
@@ -253,18 +310,15 @@ def eval_f_micro_w_from_arrays(
         pred_tsv = tmp / "pred.tsv"
         gt_tsv = tmp / "gt.tsv"
 
-        pos = labels > 0
+        pos = arrays.labels > 0
         with pred_tsv.open("w") as fh:
-            for p, g, s in zip(proteins, go_terms, scores):
+            for p, g, s in zip(arrays.proteins, arrays.go_terms, arrays.scores):
                 fh.write(f"{p}\t{g}\t{float(s):.6f}\n")
         with gt_tsv.open("w") as fh:
-            for p, g in zip(proteins[pos], go_terms[pos]):
+            for p, g in zip(arrays.proteins[pos], arrays.go_terms[pos]):
                 fh.write(f"{p}\t{g}\n")
 
-        return eval_f_micro_w(
-            pred_tsv, gt_tsv, obo_path, ia_path, namespace,
-            protea_python=protea_python, timeout=timeout,
-        )
+        return eval_f_micro_w(pred_tsv, gt_tsv, artifacts, namespace, options=opts)
 
 
 class _NullContext:
