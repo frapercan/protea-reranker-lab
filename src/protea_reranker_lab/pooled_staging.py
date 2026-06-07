@@ -1,13 +1,14 @@
 """Pooled multi-manifest staging for the universal reranker (F-RERANK-UNIVERSAL.5a).
 
 Streams each of the 24 v226-lineage manifests (8 PLM x K{3,5,10}) through
-shared bucket writers without writing a physical combined parquet (avoids
-write-OOM). ``plm_id`` and ``k_context`` are injected as constants per source.
+shared bucket writers without writing a physical combined parquet.
+``plm_id`` and ``k_context`` are injected as constants per source.
 
-Memory-bounded design: per-source Pass 0 scans ONLY
-(protein_accession, label, snapshot_pair, aspect), computes keep_mask / val_mask
-immediately, then frees the row arrays. Peak RAM per source is ~1 GB; global
-state is only the list of boolean masks + the tiny cat-vocab sets.
+Memory design: Pass 0 reads one source at a time, int-codes the heavy string
+columns (protein_accession, snapshot_pair, aspect) to int32/int8 immediately
+after concatenation, computes keep/val masks, then frees row arrays.  Peak per
+source is ~500 MB (26M rows x 10 B/row int-coded) vs. 5-20 GB with raw
+Python-object arrays.  Global state is per-source boolean masks only.
 
 Public entry point: :func:`stage_for_training_pooled`.
 """
@@ -57,12 +58,15 @@ log = logging.getLogger(__name__)
 # per-source as constants (plm_id, k_context).
 _INJECTABLE_COLS = frozenset({"plm_id", "k_context"})
 
-# Maximum total training rows across all sources.  If the keep masks
-# select more rows, we uniformly downsample the negatives to stay within
-# this budget.  At ~30 bytes/row in memory this costs ~12 GB during
-# staging (the actual LightGBM binned dataset is much smaller).
+# Maximum total training rows across all sources.  The limit targets LightGBM
+# training RSS (Pass 1), not Pass-0 scan arrays (which are int-coded and tiny).
+#
+# LightGBM peak per row (56 features):
+#   float64 raw + uint8 bins + grad/hess = 56*8 + 56 + 16 = 520 B/row
+# Budget = floor(30 GB / 520 B) = 60_997_120 => 60M rows.
+# 30 GB headroom out of 62 GB box (OS + parquet read buffers take the rest).
 # Set to None to disable the budget.
-_GLOBAL_ROW_BUDGET: int | None = 80_000_000
+_GLOBAL_ROW_BUDGET: int | None = 60_000_000
 
 
 def _rss_gb() -> float:
@@ -71,6 +75,27 @@ def _rss_gb() -> float:
         return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 * 1024)
     except Exception:
         return float("nan")
+
+
+def _strings_to_int32(arr: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Factorise a string/object array into (int32 codes, vocab).
+
+    Vectorised via ``np.unique``.  ``vocab[codes[i]] == arr[i]``.
+    Replaces ~50-200 B/row heap strings with 4 B/row int32 codes.
+    """
+    uniques, inverse = np.unique(arr, return_inverse=True)
+    return inverse.astype(np.int32, copy=False), uniques
+
+
+def _strings_to_int8(arr: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Factorise a low-cardinality string array into (int8 codes, vocab).
+
+    Raises ValueError if there are more than 127 distinct values.
+    """
+    uniques, inverse = np.unique(arr, return_inverse=True)
+    if len(uniques) > 127:
+        raise ValueError(f"Too many distinct values for int8 coding: {len(uniques)}")
+    return inverse.astype(np.int8, copy=False), uniques
 
 
 # ---------------------------------------------------------------------------
@@ -126,17 +151,19 @@ class _SourceMasks:
     val: np.ndarray   # dtype=bool, same length
 
 
-def _compute_source_masks(
-    train_pq: Path,
-    *,
-    plan: StagePlan,
-) -> _SourceMasks:
-    """Run a minimal scan of one source to build per-row keep + val masks.
+@dataclass
+class _Pass0Cols:
+    """Int-coded Pass-0 arrays for one source (string objects already freed)."""
 
-    Only reads protein_accession, label, snapshot_pair (+ aspect when needed
-    for group-cap).  Frees the row arrays before returning.
-    """
-    # Collect proteins / labels / snapshot_pairs in streaming batches.
+    proteins: np.ndarray       # int32
+    labels: np.ndarray         # int8
+    pairs: np.ndarray          # int32
+    pair_vocab: np.ndarray     # object; pair_vocab[codes[i]] == original string
+    aspects: np.ndarray | None # int8 or None
+
+
+def _scan_and_intcode(train_pq: Path, plan: StagePlan) -> "_Pass0Cols | None":
+    """Stream train_pq, int-code string columns; return None if 0 rows."""
     scan_cols = _present_columns(train_pq, ["protein_accession", "label",
                                              "snapshot_pair", "aspect"])
     prot_chunks: list[np.ndarray] = []
@@ -145,8 +172,7 @@ def _compute_source_masks(
     asp_chunks: list[np.ndarray] = []
     for batch in iter_batches(
         train_pq, columns=scan_cols, category=None, aspect=None,
-        snapshot_pairs=plan.train_snapshot_pairs,
-        batch_size=plan.batch_size,
+        snapshot_pairs=plan.train_snapshot_pairs, batch_size=plan.batch_size,
     ):
         prot_chunks.append(batch.column("protein_accession").to_numpy(zero_copy_only=False))
         lab_chunks.append(batch.column("label").to_numpy(zero_copy_only=False).astype(np.int8, copy=False))
@@ -154,37 +180,72 @@ def _compute_source_masks(
             pair_chunks.append(batch.column("snapshot_pair").to_numpy(zero_copy_only=False))
         if "aspect" in batch.schema.names:
             asp_chunks.append(batch.column("aspect").to_numpy(zero_copy_only=False))
+    if not prot_chunks or sum(len(c) for c in prot_chunks) == 0:
+        return None
+    # Concatenate then int-code immediately so np.unique never operates on
+    # live object arrays (its internal sort would double peak RSS).
+    proteins_str = np.concatenate(prot_chunks)
+    del prot_chunks
+    proteins, _ = _strings_to_int32(proteins_str)
+    del proteins_str
+    labels = np.concatenate(lab_chunks)
+    del lab_chunks
+    if pair_chunks:
+        pairs_str = np.concatenate(pair_chunks)
+        del pair_chunks
+        pairs, pair_vocab = _strings_to_int32(pairs_str)
+        del pairs_str
+    else:
+        pairs = np.zeros(len(proteins), dtype=np.int32)
+        pair_vocab = np.empty(0, dtype=object)
+    if asp_chunks:
+        asp_str = np.concatenate(asp_chunks)
+        del asp_chunks
+        aspects, _ = _strings_to_int8(asp_str)
+        del asp_str
+    else:
+        aspects = None
+    return _Pass0Cols(proteins=proteins, labels=labels,
+                      pairs=pairs, pair_vocab=pair_vocab, aspects=aspects)
 
-    n = sum(len(c) for c in prot_chunks)
-    if n == 0:
-        return _SourceMasks(
-            keep=np.empty(0, dtype=bool),
-            val=np.empty(0, dtype=bool),
+
+def _keep_val_from_coded(cols: "_Pass0Cols", plan: StagePlan) -> tuple[np.ndarray, np.ndarray]:
+    """Return (keep_mask, val_mask) for int-coded Pass-0 arrays.
+
+    For ``temporal`` val_strategy, resolves the holdout string to its int32
+    code directly -- passing a numeric code to _decide_split is unsafe because
+    ``if not 0`` is True, which would raise ValueError.
+    """
+    if plan.val_strategy == "temporal" and plan.val_holdout_snapshot is not None:
+        keep, _, _ = _decide_split(
+            proteins=cols.proteins, labels=cols.labels, pairs=cols.pairs,
+            val_strategy="none", val_fraction=plan.val_fraction,
+            val_holdout_snapshot=None, neg_pos_ratio=plan.neg_pos_ratio, seed=plan.seed,
         )
+        holdout_int = {v: i for i, v in enumerate(cols.pair_vocab)}.get(plan.val_holdout_snapshot)
+        val = (cols.pairs == holdout_int if holdout_int is not None
+               else np.zeros(len(cols.pairs), dtype=bool))
+    else:
+        keep, val, _ = _decide_split(
+            proteins=cols.proteins, labels=cols.labels, pairs=cols.pairs,
+            val_strategy=plan.val_strategy, val_fraction=plan.val_fraction,
+            val_holdout_snapshot=plan.val_holdout_snapshot,
+            neg_pos_ratio=plan.neg_pos_ratio, seed=plan.seed,
+        )
+    return keep, val
 
-    proteins = np.concatenate(prot_chunks) if prot_chunks else np.empty(0, dtype=object)
-    labels = np.concatenate(lab_chunks) if lab_chunks else np.empty(0, dtype=np.int8)
-    pairs = (np.concatenate(pair_chunks) if pair_chunks
-             else np.empty(len(proteins), dtype=object))
-    aspects = np.concatenate(asp_chunks) if asp_chunks else None
 
-    # Free chunk lists immediately.
-    del prot_chunks, lab_chunks, pair_chunks, asp_chunks
-
-    keep, val, _ = _decide_split(
-        proteins=proteins, labels=labels, pairs=pairs,
-        val_strategy=plan.val_strategy, val_fraction=plan.val_fraction,
-        val_holdout_snapshot=plan.val_holdout_snapshot,
-        neg_pos_ratio=plan.neg_pos_ratio, seed=plan.seed,
-    )
+def _compute_source_masks(train_pq: Path, *, plan: StagePlan) -> _SourceMasks:
+    """Build per-row keep + val masks for one source with int-coded string arrays."""
+    cols = _scan_and_intcode(train_pq, plan)
+    if cols is None:
+        return _SourceMasks(keep=np.empty(0, dtype=bool), val=np.empty(0, dtype=bool))
+    keep, val = _keep_val_from_coded(cols, plan)
     keep, _ = _cap_oversized_groups(
-        proteins=proteins, labels=labels, keep_mask=keep, val_mask=val,
-        max_group_size=LGBM_LAMBDARANK_MAX_GROUP, seed=plan.seed, aspects=aspects,
+        proteins=cols.proteins, labels=cols.labels, keep_mask=keep, val_mask=val,
+        max_group_size=LGBM_LAMBDARANK_MAX_GROUP, seed=plan.seed, aspects=cols.aspects,
     )
-
-    # Free large row arrays immediately.
-    del proteins, labels, pairs, aspects
-
+    del cols
     return _SourceMasks(keep=keep, val=val)
 
 
