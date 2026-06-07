@@ -8,16 +8,20 @@ PROTEA venv (the lab venv does not ship cafaeval).
 
 Output:
     runs/study_v9/cafaeval/<cell>/{pred.tsv,gt.tsv,out/,metrics.json}
-    runs/study_v9/cafaeval/results.csv  — per-cell {lab_fmax, cafaeval_fmax, delta}
+    runs/study_v9/cafaeval/results.csv  -- per-cell {lab_fmax, cafaeval_fmax, delta}
 
 The cafa_eval call mirrors PROTEA's ``run_cafa_evaluation``:
     prop="fill", norm="cafa", no_orphans=True, max_terms=500, th_step=0.001
+
+IA path is resolved via the band-registry bridge (band "v226" for the
+v9/study bench).  Set LAB_IA_V226=/path/to/IA_cafa6.tsv to override.
 """
 
 from __future__ import annotations
 
 import csv
 import json
+import os
 import sys
 import zlib
 from pathlib import Path
@@ -26,12 +30,28 @@ from typing import Any
 import numpy as np
 import pyarrow.parquet as pq
 
+# Registry bridge: resolves (band, cutoff) -> (OBO path, IA path).
+# Import is done inside the script so it works from the scripts/ pythonpath.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from protea_reranker_lab.band_registry_bridge import (  # noqa: E402
+    BandMismatchError,
+    resolve_band_artifacts,
+)
+
 REPO = Path(__file__).resolve().parents[1]
 SOURCE_EVAL = REPO / "datasets" / "bench-v1-K5" / "eval.parquet"
-OBO_PATH = REPO / "datasets" / "bench-v1-K5" / "go.obo"
 RESULTS_CSV = REPO / "runs" / "study_v9" / "replication" / "results.csv"
 OUT_DIR = REPO / "runs" / "study_v9" / "cafaeval"
 PROTEA_VENV = Path("/home/frapercan/.cache/pypoetry/virtualenvs/protea-wR7652Au-py3.12")
+
+# Resolve OBO and IA for the v226 bench band (the band this script evaluates).
+# LAB_OBO_V226 / LAB_IA_V226 env vars override the search-list if set.
+try:
+    OBO_PATH, IA_PATH = resolve_band_artifacts("v226")
+except (FileNotFoundError, BandMismatchError) as _e:
+    # Fall back gracefully at import time; main() will report the error.
+    OBO_PATH = REPO / "datasets" / "bench-v1-K5" / "go.obo"
+    IA_PATH = Path(os.environ.get("LAB_IA_V226", ""))
 
 
 def _winners(rows: list[dict]) -> dict[str, dict]:
@@ -119,6 +139,7 @@ def _run_cafa_eval(cell: str, cell_dir: Path) -> dict[str, Any]:
         obo=str(OBO_PATH),
         pred_dir=str(pred_dir),
         gt=str(cell_dir / "gt.tsv"),
+        ia=str(IA_PATH),
         out_json=str(cell_dir / "_raw_metrics.json"),
     ))
 
@@ -150,15 +171,17 @@ df, dfs_best = cafa_eval(
     "{obo}",
     "{pred_dir}",
     "{gt}",
+    ia="{ia}",
     prop="fill",
     norm="cafa",
     no_orphans=True,
     max_terms=500,
     th_step=0.001,
     n_cpu=1,
+    weighted_only=False,
 )
 
-# Extract Fmax per namespace from dfs_best.
+# Extract all metrics per namespace from dfs_best.
 metrics = {{}}
 for metric_kind, df_best in dfs_best.items():
     rec = df_best.reset_index().to_dict(orient="records")
@@ -220,11 +243,20 @@ def _pick_cell_fmax(fmax_dict: dict[str, float], cell: str) -> float | None:
 
 
 def main() -> int:
+    print(f"[info] OBO: {OBO_PATH}")
+    print(f"[info] IA : {IA_PATH}")
     if not OBO_PATH.exists():
         print(f"[err] OBO not found at {OBO_PATH}; download it first")
         return 2
+    if not IA_PATH or not Path(IA_PATH).exists():
+        print(
+            f"[err] IA file not found at {IA_PATH}. "
+            "Set LAB_IA_V226=/path/to/IA_cafa6.tsv or ensure the file is in "
+            "one of the standard search roots."
+        )
+        return 2
     if not RESULTS_CSV.exists():
-        print(f"[err] {RESULTS_CSV} missing — run F1 first")
+        print(f"[err] {RESULTS_CSV} missing -- run F1 first")
         return 2
 
     rows = list(csv.DictReader(RESULTS_CSV.open()))
