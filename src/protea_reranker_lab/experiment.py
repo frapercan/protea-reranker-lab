@@ -96,6 +96,21 @@ class TrainingSpec(BaseModel):
     # LambdaRank groups are per-(protein, aspect) pairs.
     aspect_conditioned: bool = False
 
+    # K-augmentation policy (F-RERANK-UNIVERSAL.4)
+    # ---------------------------------------------------
+    # k_aug_seed: seeded RNG for drawing training candidates from the bounded
+    #   K distribution across the K{3,5,10} pooled sources.  Must be
+    #   deterministic: two runs with the same seed MUST produce byte-identical
+    #   candidate selections and spec hashes.
+    # k_aug_bounds: inclusive (k_min, k_max) pair; None = no K-augmentation
+    #   (use all K sources in the pool as-is).
+    # k_inference_policy: "fixed" uses all pool sources at inference (no
+    #   stochastic draw); "adaptive" selects K by protein coverage count.
+    #   Captured in ExperimentSpec.hash() so changes break the hash.
+    k_aug_seed: int = 42
+    k_aug_bounds: tuple[int, int] | None = None
+    k_inference_policy: str = "fixed"
+
     model_config = {"frozen": True}
 
     @model_validator(mode="after")

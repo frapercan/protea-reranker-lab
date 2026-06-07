@@ -43,7 +43,9 @@ from protea_contracts import (
 from .evaluate import fmax_per_protein_group
 from .experiment import ExperimentSpec, ModelSpec, TrainingSpec
 from .ia_weighting import ia_weights, load_ia_table
+from .negative_sampling_audit import audit_negative_sampling
 from .reranker import (
+    FitContext,
     SplitArrays,
     TrainConfig,
     fit,
@@ -227,6 +229,7 @@ def _prepare_stage(
     )
 
     report["split"] = _split_info(spec, stage)
+    report["k_augmentation"] = _k_aug_info(spec)
     _dump_report(out_dir, report)
     return cfg, feature_cols, categorical_cols, stage, ds_dir
 
@@ -251,7 +254,7 @@ def _build_splits(
     feature_cols: list[str],
     report: dict[str, Any],
 ) -> tuple[SplitArrays, SplitArrays | None]:
-    """Load train/val sequences + arrays and attach IA weights."""
+    """Load train/val sequences + arrays, attach IA weights, and record audit."""
     train_labels = np.load(stage.train.labels_path)
 
     val_seq = val_labels = val_groups = None
@@ -265,6 +268,28 @@ def _build_splits(
     train_weights, val_weights = _build_ia_weights(
         cfg, ds_dir, stage, train_labels, val_labels, report,
     )
+
+    # Negative-sampling leakage audit (F-RERANK-UNIVERSAL.4).
+    n_pos = int((train_labels > 0).sum())
+    n_neg = int((train_labels == 0).sum())
+    audit = audit_negative_sampling(
+        n_positives=n_pos,
+        n_negatives_before=n_neg,
+        n_negatives_after=n_neg,
+        neg_pos_ratio=cfg.neg_pos_ratio,
+        sampling_seed=cfg.seed,
+    )
+    report["negative_sampling_audit"] = {
+        "neg_pos_ratio": audit.neg_pos_ratio,
+        "lineage_excluded": list(audit.lineage_excluded),
+        "n_positives": audit.n_positives,
+        "n_negatives_before": audit.n_negatives_before,
+        "n_negatives_after": audit.n_negatives_after,
+        "actual_ratio": audit.actual_ratio,
+        "sampling_seed": audit.sampling_seed,
+        "no_label_encoding_by_lineage": audit.no_label_encoding_by_lineage,
+        "no_row_replication": audit.no_row_replication,
+    }
 
     train_split = SplitArrays(
         seq=ParquetFeatureSequence(
@@ -280,6 +305,60 @@ def _build_splits(
             seq=val_seq, labels=val_labels, groups=val_groups, weights=val_weights,
         )
     return train_split, val_split
+
+
+def _build_fit_context(
+    cfg: TrainConfig,
+    stage: StageResult,
+    ds_dir: Path,
+    val_split: SplitArrays | None,
+) -> FitContext:
+    """Build the FitContext for IA-feval or return an empty one.
+
+    The feval closure needs per-group IA values for the val split and
+    pre-computed group offsets so it can segment the flat score array
+    LightGBM passes.  This function assembles those arrays when
+    ``cfg.ia_feval_mode`` requests the feval path.
+    """
+    if cfg.ia_feval_mode not in ("feval", "combined"):
+        return FitContext()
+    if val_split is None or val_split.groups is None or val_split.labels is None:
+        return FitContext()
+
+    # Build per-group offsets from the group-sizes array.
+    group_sizes = val_split.groups
+    offsets = np.zeros(len(group_sizes), dtype=np.int64)
+    if len(group_sizes) > 1:
+        np.cumsum(group_sizes[:-1], out=offsets[1:])
+
+    # Build per-group mean IA from the val go_terms if available.
+    ia_per_group: np.ndarray
+    if (
+        cfg.ia_weighting != "none"
+        and stage.val is not None
+        and stage.val.go_terms_path is not None
+    ):
+        ia_path = _resolve_ia_path(cfg, ds_dir)
+        ia_table = load_ia_table(ia_path)
+        val_go = np.load(stage.val.go_terms_path, allow_pickle=True)
+        ia_flat = np.fromiter(
+            (ia_table.get(str(g), 0.0) for g in val_go),
+            dtype=np.float64,
+            count=len(val_go),
+        )
+        edges = np.concatenate(([0], np.cumsum(group_sizes)))
+        ia_per_group = np.array([
+            float(ia_flat[edges[i]:edges[i + 1]].mean())
+            for i in range(len(group_sizes))
+        ], dtype=np.float64)
+    else:
+        ia_per_group = np.ones(len(group_sizes), dtype=np.float64)
+
+    return FitContext(
+        val_group_offsets=offsets,
+        val_ia_per_group=ia_per_group,
+        val_labels_flat=val_split.labels,
+    )
 
 
 def _evaluate_and_record(
@@ -334,10 +413,12 @@ def _train_predict_report(
     train_split, val_split = _build_splits(
         cfg, stage, ds_dir, ctx.feature_cols, ctx.report,
     )
+    fit_ctx = _build_fit_context(cfg, stage, ds_dir, val_split)
     booster, train_metrics = fit(
         train_split, val_split, cfg,
         feature_names=ctx.feature_cols,
         categorical_features=ctx.categorical_cols,
+        fit_ctx=fit_ctx,
     )
     booster.save_model(str(ctx.out_dir / "model.txt"))
     _evaluate_and_record(booster, train_metrics, stage, ctx)
@@ -632,6 +713,16 @@ def _maybe_append_champion_candidate(
             f"cell {cell!r} (run {run_id}): {exc}",
             file=sys.stderr,
         )
+
+
+def _k_aug_info(spec: ExperimentSpec) -> dict[str, Any]:
+    """Serialize K-augmentation policy from the spec for run.json."""
+    bounds = spec.training.k_aug_bounds
+    return {
+        "k_aug_seed": spec.training.k_aug_seed,
+        "k_aug_bounds": list(bounds) if bounds else None,
+        "k_inference_policy": spec.training.k_inference_policy,
+    }
 
 
 def _apply_overrides(spec: ExperimentSpec, overrides: dict[str, Any]) -> ExperimentSpec:
