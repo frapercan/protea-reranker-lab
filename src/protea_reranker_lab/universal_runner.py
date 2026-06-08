@@ -346,15 +346,26 @@ def _run_cafaeval(
     asp = cell.split("-", 1)[1]
     ns = ASPECT_TO_NS.get(asp, asp)
 
-    def pick(metric: str) -> float | None:
-        for row in raw.get(ns, []):
-            if row.get("metric") == metric:
-                v = row.get(metric)
+    # cafaeval's ``dfs_best`` is keyed by metric-KIND ("f", "f_w", "s",
+    # "f_micro", "f_micro_w"), and each value is the best-threshold row(s)
+    # carrying ALL metric values as COLUMNS (f, f_micro, f_micro_w, ...).
+    # To read column ``col`` at its own optimal threshold, look up the
+    # DataFrame keyed by ``best_kind`` and read ``col`` from the row whose
+    # ``ns`` matches this aspect. (The previous parser keyed by namespace
+    # and looked for a non-existent "metric" field, so every value was None.)
+    def pick(col: str, best_kind: str) -> float | None:
+        for row in raw.get(best_kind, []):
+            if row.get("ns") == ns:
+                v = row.get(col)
                 if v is not None:
                     return float(v)
         return None
 
-    return {"f_micro_w": pick("f_micro_w"), "f_micro": pick("f_micro"), "fmax": pick("f")}
+    return {
+        "f_micro_w": pick("f_micro_w", "f_micro_w"),
+        "f_micro": pick("f_micro", "f_micro"),
+        "fmax": pick("f", "f"),
+    }
 
 
 def _eval_valid_band(
@@ -617,7 +628,14 @@ def run_universal(spec: UniversalRunSpec) -> dict[str, Any]:
             / "datasets" / "ia" / "IA-swissprot-exp-v227.txt"
         )
         scores_map = _build_scores_map(proteins_per_row, eval_go_terms, corrected)
-        report["valid_band_metrics"] = _eval_valid_band(
+        # PoC fix (F-RERANK-UNIVERSAL.5a): validate on the held-out
+        # v220-v226 snapshot band (computed in train_category from stage.val,
+        # hundreds+ GT rows) instead of the degenerate v226-v227 interim
+        # window (9-16 GT rows -> null cafaeval). Strict temporal order:
+        # train(<v220-v226) < validation(v220-v226) < test(v226-v230 reserved).
+        report["valid_band_metrics"] = result.valid_band_metrics
+        # Retain the legacy v226-v227 delta-window probe for provenance.
+        report["valid_band_metrics_v226_v227_legacy"] = _eval_valid_band(
             spec, result.eval_pq, scores_map, spec.train_cell, ia_path_resolved,
         )
         if spec.plm_id_ablation:
