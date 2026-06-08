@@ -42,6 +42,12 @@ class TrainResult:
     primary_plm: str
     primary_k: int
     staging_meta: dict = dataclasses.field(default_factory=dict)
+    # F-RERANK-UNIVERSAL.5a PoC: cafaeval metrics on the held-out
+    # v220-v226 validation band (the snapshot pair excluded from training
+    # via val_holdout_snapshot). Computed from ``stage.val`` BEFORE the
+    # staging dir is torn down. Strictly between train (<v220-v226) and the
+    # reserved test (v226-v230 eval.parquet); zero leakage.
+    valid_band_metrics: dict = dataclasses.field(default_factory=dict)
 
 
 @dataclass
@@ -268,6 +274,202 @@ def _fit_and_predict(
     return booster, train_metrics, raw_scores
 
 
+def _read_val_meta(stage: Any) -> dict[str, np.ndarray]:
+    """Read row-aligned protein/go/label/aspect/vote_count for the val split.
+
+    The materialised bucket parquets carry ONLY feature columns (the reserved
+    columns are stripped); ``protein_accession``/``label``/``go_term_id`` and
+    the per-group ``aspect``/``proteins`` live in the ``.npy`` sidecars next to
+    the buckets. ``labels``/``go_terms`` are row-aligned; ``proteins`` and
+    ``aspects`` are one-per-group, so they are expanded with ``groups``. The
+    KNN baseline column ``vote_count`` is read row-aligned from the buckets,
+    whose row order matches the sidecars (same bucket concat order).
+    """
+    import pyarrow.parquet as pq
+
+    val = stage.val
+    labels = np.load(val.labels_path)
+    groups = np.load(val.groups_path)
+    proteins_per_group = np.load(val.proteins_path, allow_pickle=True)
+    proteins = np.repeat(proteins_per_group, groups)
+    go_terms = (
+        np.load(val.go_terms_path, allow_pickle=True)
+        if val.go_terms_path is not None else np.empty(len(labels), dtype=object)
+    )
+    aspects_per_group = (
+        np.load(val.aspects_path, allow_pickle=True)
+        if val.aspects_path is not None else None
+    )
+    aspects = (
+        np.repeat(aspects_per_group, groups)
+        if aspects_per_group is not None
+        else np.empty(len(labels), dtype=object)
+    )
+    out: dict[str, np.ndarray] = {
+        "protein_accession": proteins,
+        "label": labels,
+        "go_term_id": go_terms,
+        "aspect": aspects,
+    }
+    if "vote_count" in stage.feature_cols:
+        chunks = [
+            pq.read_table(str(bp), columns=["vote_count"])
+            .column("vote_count").to_numpy(zero_copy_only=False)
+            for bp in val.bucket_paths
+        ]
+        out["vote_count"] = (
+            np.concatenate(chunks) if chunks else np.empty(0, dtype=np.float64)
+        )
+    return out
+
+
+def _write_band_tsvs(
+    cell_dir: Path, prot: np.ndarray, go: np.ndarray,
+    label: np.ndarray, score: np.ndarray,
+) -> int:
+    """Write pred.tsv + gt.tsv for one band cell. Returns n_gt_rows."""
+    cell_dir.mkdir(parents=True, exist_ok=True)
+    pred_lines = [
+        f"{p}\t{g}\t{s:.6f}\n" for p, g, s in zip(prot, go, score)
+    ]
+    gt_lines = [
+        f"{p}\t{g}\n" for p, g, lab in zip(prot, go, label) if lab > 0
+    ]
+    (cell_dir / "pred.tsv").write_text("".join(pred_lines))
+    (cell_dir / "gt.tsv").write_text("".join(gt_lines))
+    return len(gt_lines)
+
+
+@dataclass
+class _BandRows:
+    """Row-aligned val-band arrays + per-cell output dirs for one eval pass."""
+
+    prot: np.ndarray
+    go: np.ndarray
+    label: np.ndarray
+    aspect: np.ndarray
+    booster_scores: np.ndarray
+    knn_scores: np.ndarray | None
+    rdir: Path
+    kdir: Path
+
+
+def _eval_band_cell(
+    cell: str, rows: _BandRows, obo_path: Path, ia_path: Path, protea_python: Path,
+) -> dict[str, Any]:
+    """Score one NK/LK cell (reranker + optional KNN baseline) via cafaeval."""
+    from .universal_runner import _run_cafaeval
+
+    asp = cell.split("-", 1)[1]
+    m = rows.aspect == asp
+    if not m.any():
+        return {"status": "no_rows"}
+    n_gt = _write_band_tsvs(
+        rows.rdir / cell, rows.prot[m], rows.go[m], rows.label[m],
+        rows.booster_scores[m],
+    )
+    cm = _run_cafaeval(cell, rows.rdir, obo_path, ia_path, protea_python)
+    cm["n_pred_rows"] = int(m.sum())
+    cm["n_gt_rows"] = n_gt
+    cm["n_proteins"] = int(np.unique(rows.prot[m]).size)
+    entry: dict[str, Any] = {"reranker": cm}
+    if rows.knn_scores is not None:
+        _write_band_tsvs(
+            rows.kdir / cell, rows.prot[m], rows.go[m], rows.label[m],
+            rows.knn_scores[m],
+        )
+        entry["knn_baseline"] = _run_cafaeval(
+            cell, rows.kdir, obo_path, ia_path, protea_python,
+        )
+    return entry
+
+
+def _eval_holdout_band(
+    ctx: CategoryCtx, stage: Any, booster: Any, ia_path_resolved: Path,
+) -> dict[str, Any]:
+    """Evaluate cafaeval on the held-out v220-v226 validation band.
+
+    Scores ``stage.val`` (the snapshot pair excluded from training) with both
+    the trained booster and the KNN-only ``vote_count`` baseline, then runs
+    cafaeval per NK/LK cell of ``ctx.category``. Reuses the universal_runner
+    cafaeval driver/constants (deferred import avoids a circular dependency).
+    """
+    import tempfile
+
+    from .universal_runner import ASPECT_TO_NS, NK_LK_CELLS
+
+    if stage.val is None or stage.val.n_rows == 0:
+        return {"status": "no_val_split"}
+    spec = ctx.spec
+    obo_path = spec.obo_path
+    if obo_path is None or not Path(obo_path).exists():
+        return {"error": f"OBO not found at {obo_path}"}
+
+    meta = _read_val_meta(stage)
+    n = len(meta["label"])
+    # Booster scores over the staged val features (row order == bucket order).
+    seq = ParquetFeatureSequence(
+        [str(p) for p in stage.val.bucket_paths], stage.feature_cols
+    )
+    booster_scores = predict_streaming(booster, seq)[:n]
+    cells = [
+        c for c in NK_LK_CELLS
+        if c.split("-", 1)[0] == ctx.category and c.split("-", 1)[1] in ASPECT_TO_NS
+    ]
+
+    metrics: dict[str, Any] = {}
+    with tempfile.TemporaryDirectory(prefix="band_eval_") as tmp_r, \
+         tempfile.TemporaryDirectory(prefix="band_eval_knn_") as tmp_k:
+        rows = _BandRows(
+            prot=meta["protein_accession"].astype(str),
+            go=meta["go_term_id"].astype(str),
+            label=meta["label"],
+            aspect=meta["aspect"].astype(str),
+            booster_scores=booster_scores,
+            knn_scores=(
+                meta["vote_count"].astype(np.float64)
+                if "vote_count" in meta else None
+            ),
+            rdir=Path(tmp_r),
+            kdir=Path(tmp_k),
+        )
+        for cell in cells:
+            metrics[cell] = _eval_band_cell(
+                cell, rows, Path(obo_path), ia_path_resolved, spec.protea_python,
+            )
+    return _summarise_band_metrics(metrics, spec)
+
+
+def _summarise_band_metrics(
+    metrics: dict[str, Any], spec: Any,
+) -> dict[str, Any]:
+    """Append reranker/KNN mean f_micro_w + provenance to per-cell metrics."""
+    def _mean_fmw(key: str) -> float | None:
+        vals = [
+            float(e[key]["f_micro_w"])
+            for e in metrics.values()
+            if isinstance(e, dict) and isinstance(e.get(key), dict)
+            and e[key].get("f_micro_w") is not None
+        ]
+        return float(np.mean(vals)) if vals else None
+
+    reranker_mean = _mean_fmw("reranker")
+    metrics["reranker_mean_f_micro_w"] = reranker_mean
+    metrics["knn_mean_f_micro_w"] = _mean_fmw("knn_baseline")
+    metrics["cells_evaluated"] = sum(
+        1 for e in metrics.values()
+        if isinstance(e, dict) and isinstance(e.get("reranker"), dict)
+        and e["reranker"].get("f_micro_w") is not None
+    )
+    metrics["validation_band"] = spec.val_holdout_snapshot
+    metrics["note"] = (
+        "Held-out snapshot-pair validation GT (candidate-set restricted). "
+        "Reranker-vs-KNN comparison is valid; absolute f_micro_w may be "
+        "optimistic vs a clean v227-lineage recompute (deferred)."
+    )
+    return metrics
+
+
 def train_category(ctx: CategoryCtx) -> TrainResult:
     """Stage + fit one category. Returns TrainResult with booster + predictions."""
     primary_src = _pick_primary_source(ctx.multi_spec)
@@ -282,6 +484,12 @@ def train_category(ctx: CategoryCtx) -> TrainResult:
     eval_labels = np.load(stage.eval.labels_path)
     eval_groups = np.load(stage.eval.groups_path)
     eval_proteins = np.load(stage.eval.proteins_path, allow_pickle=True)
+    # Evaluate the held-out v220-v226 validation band BEFORE rmtree, while
+    # stage.val buckets still exist on disk.
+    try:
+        valid_band_metrics = _eval_holdout_band(ctx, stage, booster, ia_path_resolved)
+    except Exception as exc:  # never let band eval abort the run
+        valid_band_metrics = {"error": f"holdout_band_eval_failed: {exc!r}"}
     # Read staging meta BEFORE rmtree (pooled_staging_meta.json lives in staging dir).
     staging_meta: dict = {}
     staging_meta_path = ctx.staging_root / ctx.category / "pooled_staging_meta.json"
@@ -301,4 +509,5 @@ def train_category(ctx: CategoryCtx) -> TrainResult:
         feature_importance=fi, eval_pq=eval_pq,
         primary_plm=primary_src.plm_id, primary_k=primary_src.k_context,
         staging_meta=staging_meta,
+        valid_band_metrics=valid_band_metrics,
     )

@@ -146,16 +146,44 @@ def main(argv: list[str] | None = None) -> int:
         if args.v227_delta_parquet
         else _AGENT_FARM_RESULTS / "executor-1780829216-57db" / "v227data" / "train.parquet"
     )
-    parent_map = (
-        Path(args.parent_map)
-        if args.parent_map
-        else _CANONICAL_LAB / "datasets" / "bench-v1-K5" / "parent_map.json"
-    )
-    obo_path = (
-        Path(args.obo)
-        if args.obo
-        else _CANONICAL_LAB / "datasets" / "bench-v1-K5" / "go.obo"
-    )
+    # OBO + parent_map resolution.
+    #
+    # The v226-lineage dataset dirs (bench-v1-K{3,5,10}-v226-lineage-<plm>) ship
+    # only train/eval parquet + manifest.json (they do NOT carry a go.obo or
+    # parent_map.json). All of them share the SAME ontology_snapshot_id
+    # (35c3ad67, == data-version releases/2026-01-23) as the canonical
+    # bench-v1-K5 / bench-v1-K5-filtered datasets, whose go.obo + parent_map.json
+    # are byte-identical. So the canonical copies are the correct GO snapshot.
+    #
+    # A naive obo arg pointing at a v226-lineage dir resolves to a non-existent
+    # file, which previously left valid_band_metrics={error: OBO not found} and
+    # produced no real f_micro_w. We therefore validate the supplied/derived
+    # path and fall back to the canonical shared-snapshot copy.
+    _CANONICAL_GO_DIRS = ("bench-v1-K5-filtered", "bench-v1-K5")
+
+    def _resolve_shared_artifact(supplied: str | None, filename: str) -> Path:
+        candidates: list[Path] = []
+        if supplied:
+            candidates.append(Path(supplied))
+        for d in _CANONICAL_GO_DIRS:
+            candidates.append(_CANONICAL_LAB / "datasets" / d / filename)
+        for cand in candidates:
+            if cand.exists():
+                if supplied and cand != Path(supplied):
+                    print(
+                        f"[universal] WARNING: supplied {filename} "
+                        f"'{supplied}' missing; falling back to shared-snapshot "
+                        f"copy '{cand}'."
+                    )
+                return cand
+        # Nothing exists; return the first canonical candidate so the
+        # downstream error message names the canonical location.
+        return _CANONICAL_LAB / "datasets" / _CANONICAL_GO_DIRS[0] / filename
+
+    parent_map = _resolve_shared_artifact(args.parent_map, "parent_map.json")
+    obo_path = _resolve_shared_artifact(args.obo, "go.obo")
+    print(f"[universal] resolved obo_path     = {obo_path} (exists={obo_path.exists()})")
+    print(f"[universal] resolved parent_map   = {parent_map} (exists={parent_map.exists()})")
     ia_path = Path(args.ia_path) if args.ia_path else None
     protea_python = (
         Path(args.protea_python)

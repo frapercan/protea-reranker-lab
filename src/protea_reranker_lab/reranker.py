@@ -38,6 +38,7 @@ grouped), the function recomputes group boundaries from a precomputed
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -55,6 +56,9 @@ class TrainConfig:
     objective: str = "lambdarank"
     num_boost_round: int = 5000
     early_stopping_rounds: int | None = 50
+    # Period (in boosting rounds) for lgb.log_evaluation; 0/None disables it.
+    # Surfaces the tree phase instead of leaving it a black box.
+    log_period: int | None = 50
     learning_rate: float = 0.05
     num_leaves: int = 63
     min_data_in_leaf: int = 100
@@ -258,6 +262,27 @@ def _select_feval(
     )
 
 
+def _build_train_runtime(
+    cfg: TrainConfig,
+    n_valid_sets: int,
+) -> list[Callable[..., Any]]:
+    """Resolve early-stopping/logging callbacks for ``lgb.train``.
+
+    Preserves the established early-stopping behaviour (track the built-in
+    lambdarank metrics on the held-out ``val`` set). A ``log_evaluation``
+    callback surfaces the tree phase per ``cfg.log_period`` so the boosting
+    run is observable instead of a black box.
+    """
+    callbacks: list[Callable[..., Any]] = []
+    if cfg.early_stopping_rounds and n_valid_sets > 1:
+        callbacks.append(
+            lgb.early_stopping(cfg.early_stopping_rounds, verbose=False)
+        )
+    if cfg.log_period and cfg.log_period > 0:
+        callbacks.append(lgb.log_evaluation(period=cfg.log_period))
+    return callbacks
+
+
 def fit(
     train: SplitArrays,
     val: SplitArrays | None,
@@ -281,12 +306,10 @@ def fit(
         ))
         valid_names.append("val")
 
-    callbacks = []
-    if cfg.early_stopping_rounds and len(valid_sets) > 1:
-        callbacks.append(lgb.early_stopping(cfg.early_stopping_rounds, verbose=False))
-
     ctx = fit_ctx or FitContext()
     feval = _select_feval(cfg, ctx, len(valid_sets))
+    callbacks = _build_train_runtime(cfg, len(valid_sets))
+
     booster = lgb.train(
         params, train_ds,
         num_boost_round=cfg.num_boost_round,
