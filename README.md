@@ -46,7 +46,7 @@ lab iterates on hyperparameters and ablations entirely offline, reading
 through sorted parquet buckets as `lgb.Sequence` objects to keep peak
 RSS bounded below 15 GB even on the largest cell.
 
-**Current champion (binary-objective, multi-seed, 2026-05-18):**
+**Current per-cell champion (binary-objective, multi-seed, 2026-05-18):**
 NK+LK selective average cafaeval Fmax **0.7291 +/- 0.0028** on
 `bench-v1-K5-v226-lineage` (3 seeds). All six NK+LK paired-bootstrap
 confidence intervals vs the KNN baseline are strictly positive at 95%
@@ -54,7 +54,16 @@ confidence intervals vs the KNN baseline are strictly positive at 95%
 champion; PK cells remain on the KNN baseline (PK gains are policy-zero; see
 ADR D34). This is the publishable number for Chapter 6 of the doctoral thesis.
 
-The earlier LB.2 estimate (0.6215 +/- 0.0014) is superseded by the current
+**Universal booster (F-RERANK-UNIVERSAL, PoC, 2026-06-08):** a single
+aspect-conditioned, K-augmented, IA-weighted LambdaMART model trained over all
+24 v226-lineage manifests (8 PLM x K{3,5,10}) replaces the per-cell phase3a
+models. The PoC validates on the held-out `"v220-v226"` band and beats the
+`prot_t5 K3` KNN baseline on NK+LK mean `f_micro_w`. The absolute number is
+candidate-set restricted; a clean v227-lineage recompute is deferred before
+publication. See [ADR D41](docs/adr/D41-universal-reranker.md) and
+[universal reranker docs](docs/source/universal_reranker.rst).
+
+The earlier LB.2 estimate (0.6215 +/- 0.0014) is superseded by the per-cell
 champion and should not be cited in place of 0.7291 in new writing. See the
 [Leakage history](#leakage-history) note for the full number genealogy and
 why 0.4562 must not be cited.
@@ -229,25 +238,42 @@ protea-reranker-lab/
 │   ├── esm2_650m_card.md
 │   └── ...                    # one card per PLM (8 total)
 ├── src/protea_reranker_lab/
-│   ├── train.py       # CLI entry-point
-│   ├── evaluate.py    # numpy Fmax
-│   ├── compare.py     # bootstrap comparison namespace
-│   ├── staging.py     # bucket-sort + cell filter
-│   ├── bootstrap.py   # paired bootstrap CIs
-│   ├── runner.py      # ExperimentSpec orchestrator
-│   ├── reranker.py    # LightGBM fit / predict
-│   ├── sequences.py   # lgb.Sequence on parquet buckets
-│   ├── builder.py     # streaming reshape
-│   ├── data.py        # PyArrow streaming primitives
-│   ├── experiment.py  # ExperimentSpec / DatasetRef
-│   └── schemas.py     # ManifestV1 + schema_sha
+│   ├── train.py           # per-cell CLI entry-point
+│   ├── evaluate.py        # numpy Fmax
+│   ├── compare.py         # bootstrap comparison namespace
+│   ├── staging.py         # single-manifest bucket-sort + cell filter
+│   ├── pooled_staging.py  # multi-manifest pooled staging (int-code OOM fix)
+│   ├── bootstrap.py       # paired bootstrap CIs
+│   ├── runner.py          # ExperimentSpec orchestrator
+│   ├── universal_runner.py# universal booster orchestrator (F-RERANK-UNIVERSAL)
+│   ├── universal_train.py # training helpers + holdout-band evaluator
+│   ├── multi_source.py    # MultiManifestSpec + ManifestSource
+│   ├── reranker.py        # LightGBM fit / predict + IA-feval callback
+│   ├── sequences.py       # lgb.Sequence on parquet buckets
+│   ├── builder.py         # streaming reshape
+│   ├── data.py            # PyArrow streaming primitives
+│   ├── experiment.py      # ExperimentSpec / DatasetRef
+│   ├── schemas.py         # ManifestV1 + schema_sha
+│   ├── calibration.py     # per-aspect isotonic calibration
+│   ├── hierarchical_correction.py  # parent >= max-child score correction
+│   └── ia_weighting.py    # IA sample weights + feval callback
 ├── scripts/
-│   ├── validate_manifest.py       # F-DATA-PACK.1: manifest schema + hash validator
-│   ├── generate_dataset_readme.py # F-DATA-PACK.2: per-dataset README generator
-│   └── ...                        # other CLI drivers (run.py, run_study.py, ...)
+│   ├── validate_manifest.py        # F-DATA-PACK.1: manifest schema + hash validator
+│   ├── generate_dataset_readme.py  # F-DATA-PACK.2: per-dataset README generator
+│   ├── run_universal_booster.py    # universal booster CLI (F-RERANK-UNIVERSAL)
+│   └── ...                         # other CLI drivers (run.py, run_study.py, ...)
 ├── docs/
+│   ├── adr/
+│   │   ├── D34-selective-rerank-resurrection.md
+│   │   ├── D39-f-data-pack-fair-dataset-packaging.md
+│   │   ├── D40-ia-aligned-training.md
+│   │   └── D41-universal-reranker.md   # universal booster design decisions
 │   ├── dataset_provenance.md  # F-DATA-PACK.4: FAIR/coverage provenance document
-│   └── ...                    # Sphinx documentation
+│   └── source/
+│       ├── overview.rst
+│       ├── metrics.rst
+│       ├── ia_aligned_training.rst
+│       └── universal_reranker.rst      # universal booster documentation
 └── experiments/               # YAML spec files
 ```
 
@@ -290,6 +316,11 @@ data lineage (GOA window, PCA fit policy, leakage-free note, FAIR checklist).
 - [PROTEA ADR D38](https://github.com/frapercan/PROTEA/blob/develop/docs/source/adr/D38-neural-head-deferred-dataset-pack-pivot.rst):
   neural-head deferral and pivot to F-DATA-PACK; authoritative record for the
   decision to ship the curated dataset grid over a deep-learning competitor
+- [ADR D40](docs/adr/D40-ia-aligned-training.md): IA-aligned training
+  (palanca 1 sample weighting); palanca-1 verdict STOP, infrastructure stays
+- [ADR D41](docs/adr/D41-universal-reranker.md): universal booster pipeline
+  (pooled multi-manifest staging, temporal validation protocol, holdout-band
+  evaluator, GOA self-prior reference)
 
 ## Tests
 

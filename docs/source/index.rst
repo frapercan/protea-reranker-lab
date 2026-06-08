@@ -13,6 +13,7 @@ schema.
    overview
    metrics
    ia_aligned_training
+   universal_reranker
    reference/index
 
 Indices and tables
