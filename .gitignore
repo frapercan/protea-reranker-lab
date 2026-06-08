@@ -11,6 +11,8 @@ datasets/bench-v1-K5-v10/
 datasets/bench-v1-K5-v226-lineage-prostt5/*
 !datasets/bench-v1-K5-v226-lineage-prostt5/README.md
 datasets/no-emb-prostt5-k5-features/
+datasets/_stage_v227/
+datasets/ia/IA-swissprot-exp-v227.txt
 experiments/_generated/
 experiments/leakage_fix/
 runs/
