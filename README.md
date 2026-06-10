@@ -1,5 +1,11 @@
 # protea-reranker-lab
 
+[![CI](https://github.com/frapercan/protea-reranker-lab/actions/workflows/quality.yml/badge.svg)](https://github.com/frapercan/protea-reranker-lab/actions/workflows/quality.yml)
+[![Docs](https://github.com/frapercan/protea-reranker-lab/actions/workflows/docs.yml/badge.svg)](https://frapercan.github.io/protea-reranker-lab/)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/protea-reranker-lab.svg)](https://pypi.org/project/protea-reranker-lab/)
+
 Offline LightGBM training laboratory for the PROTEA GO-term reranker.
 The lab consumes frozen feature datasets exported from PROTEA, fits a
 streaming ranking model without ever loading a full DataFrame into
@@ -91,7 +97,9 @@ PROTEA (export_research_dataset)
 
 ## Documentation
 
-Full documentation lives under `docs/` and builds with Sphinx:
+Full documentation is published to GitHub Pages at
+https://frapercan.github.io/protea-reranker-lab/. It lives under `docs/`
+and builds with Sphinx:
 
 ```bash
 poetry install
