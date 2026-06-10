@@ -293,7 +293,10 @@ protea-reranker-lab/
 │   │   └── D41-universal-reranker.md   # universal booster design decisions
 │   ├── dataset_provenance.md  # F-DATA-PACK.4: FAIR/coverage provenance document
 │   └── source/
-│       ├── overview.rst
+│       ├── index.rst         # narrative intro + module map
+│       ├── concepts.rst      # workflow story + key concepts
+│       ├── quickstart.rst
+│       ├── guide.rst         # stage-by-stage mechanics
 │       ├── metrics.rst
 │       ├── ia_aligned_training.rst
 │       └── universal_reranker.rst      # universal booster documentation
