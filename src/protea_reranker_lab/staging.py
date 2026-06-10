@@ -616,7 +616,7 @@ def _eval_override_labels(
     )
     ev_n_pos_before = int((ev_labels > 0).sum())
     ev_labels, ev_promoted = propagate_labels_to_ancestors(
-        ev_proteins, ev_go_terms, ev_labels, parent_map_local,
+        ev_proteins, ev_go_terms, ev_labels, parent_map_local,  # type: ignore[arg-type]
     )
     propagation_stats.update({
         "eval_positives_before": ev_n_pos_before,
@@ -731,7 +731,7 @@ def stage_for_training(
         collect_aspects=plan.aspect_conditioned,
     )
     propagation_stats: dict[str, int] = {}
-    if propagate:
+    if plan.parent_map_path is not None:  # narrows the attribute for mypy
         labels0, propagation_stats = _propagate_train_labels(
             proteins0=proteins0, labels0=labels0,
             go_terms0=go_terms0, parent_map_path=plan.parent_map_path,

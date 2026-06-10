@@ -30,7 +30,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pyarrow as pa
@@ -131,7 +131,7 @@ class UniversalRunSpec:
     k_values: list[int] | None = None
     train_cell: str = "nk"
     model_defaults: dict[str, Any] = field(default_factory=dict)
-    val_strategy: str = "temporal"
+    val_strategy: Literal["protein_group", "temporal", "none"] = "temporal"
     val_holdout_snapshot: str | None = "v220-v226"
     ia_weighting: str = "all"
     ia_path: Path | None = None
@@ -325,7 +325,7 @@ def _write_valid_tsvs(
 def _run_cafaeval(
     cell: str, work_dir: Path, obo_path: Path,
     ia_path: Path, protea_python: Path, timeout: int = 900,
-) -> dict[str, float | None]:
+) -> dict[str, float | str | None]:
     """Run cafaeval on one cell's TSVs and return per-namespace metrics."""
     cell_dir = work_dir / cell
     out_json = cell_dir / "cafaeval_out.json"

@@ -11,6 +11,7 @@ Both columns are absent from the raw parquet dumps; they are injected by this
 module at iteration time, before any staging pipeline processes the batch.
 
 Design constraints (from the task spec and hard constraints):
+
 - NEVER torch GPU KNN / pgvector.  This module is pure CPU/numpy.
 - No physical all-PLM parquet: rows are streamed and concatenated lazily.
 - schema_sha is derived from ``"|".join(sorted(str(p) for p in manifest_uris))``,
@@ -42,6 +43,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator
@@ -124,7 +126,7 @@ class MultiManifestSpec:
     @classmethod
     def from_manifest_paths(
         cls,
-        paths: list[Path | str],
+        paths: Sequence[Path | str],
         *,
         plm_overrides: dict[str, str] | None = None,
         k_overrides: dict[str, int] | None = None,

@@ -381,15 +381,8 @@ class _SrcEncoder:
     def from_layout_and_src(
         cls, layout: FeatureLayout, src: "ManifestSource",
     ) -> "_SrcEncoder":
-        cat_set = set(layout.categorical_cols)
-        code_maps = {
-            c: {v: i for i, v in enumerate(layout.cat_codes[c])}
-            for c in layout.categorical_cols
-        }
-        return cls(
-            cat_set=cat_set, code_maps=code_maps,
-            plm_code=code_maps.get("plm_id", {}).get(src.plm_id, CAT_MISSING_CODE),
-            k_val_f32=np.float32(src.k_context),
+        return cls.from_cat_codes_and_src(
+            layout.categorical_cols, layout.cat_codes, src,
         )
 
     @classmethod
@@ -399,10 +392,9 @@ class _SrcEncoder:
         cat_codes: dict[str, list[str]],
         src: "ManifestSource",
     ) -> "_SrcEncoder":
-        cat_set = set(categorical_cols)
         code_maps = {c: {v: i for i, v in enumerate(cat_codes[c])} for c in categorical_cols}
         return cls(
-            cat_set=cat_set, code_maps=code_maps,
+            cat_set=set(categorical_cols), code_maps=code_maps,
             plm_code=code_maps.get("plm_id", {}).get(src.plm_id, CAT_MISSING_CODE),
             k_val_f32=np.float32(src.k_context),
         )

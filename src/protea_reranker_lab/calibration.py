@@ -4,6 +4,7 @@ Fits one calibrator per GO namespace (MFO, BPO, CCO) on the VALID window
 predictions, then applies it to score arrays before final reporting.
 
 Two calibration methods:
+
 - ``"isotonic"``: sklearn.isotonic.IsotonicRegression (non-parametric, monotone).
   Preferred for ranking outputs where the raw score ordering is correct but the
   scale is arbitrary.
@@ -40,7 +41,7 @@ from __future__ import annotations
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 
@@ -102,11 +103,11 @@ class AspectCalibrator:
         self,
         aspect: str,
         spec: CalibrationSpec,
-        estimator: object | None = None,
+        estimator: Any | None = None,
     ) -> None:
         self.aspect = aspect
         self.spec = spec
-        self._estimator = estimator
+        self._estimator: Any = estimator
 
     @property
     def is_fitted(self) -> bool:

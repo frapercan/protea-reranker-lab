@@ -73,11 +73,11 @@ def propagate_labels_to_ancestors(
 
     new_labels = labels.copy()
     n_promoted = 0
-    for i in range(len(labels)):
-        if new_labels[i]:
+    for j in range(len(labels)):
+        if new_labels[j]:
             continue
-        cl = closure.get(proteins[i])
-        if cl is not None and go_terms[i] in cl:
-            new_labels[i] = 1
+        cl = closure.get(proteins[j])
+        if cl is not None and go_terms[j] in cl:
+            new_labels[j] = 1
             n_promoted += 1
     return new_labels, n_promoted

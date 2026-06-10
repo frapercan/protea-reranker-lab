@@ -506,7 +506,7 @@ def _features_info(spec: ExperimentSpec, cfg: TrainConfig) -> dict[str, Any]:
 
 
 def _split_info(spec: ExperimentSpec, stage: StageResult) -> dict[str, Any]:
-    info = {
+    info: dict[str, Any] = {
         "strategy": spec.training.val_strategy,
         "val_holdout_snapshot": spec.training.val_holdout_snapshot,
         "n_train": int(stage.train.n_rows),
