@@ -2,8 +2,8 @@ Quickstart
 ==========
 
 This page gets you from a clone to a trained, evaluated booster. For the
-conceptual tour of each stage see :doc:`workflow`; for the full
-publish-back flow see the project ``README``.
+workflow as a story see :doc:`concepts`; for the stage-by-stage mechanics
+see :doc:`guide`; for the full publish-back flow see the project ``README``.
 
 .. contents:: On this page
    :depth: 2
