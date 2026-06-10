@@ -2,7 +2,8 @@ name: docs
 
 # Builds the Sphinx documentation with warnings treated as errors so a
 # broken cross-reference, a malformed docstring, or a missing toctree
-# entry fails the pull request rather than rotting silently.
+# entry fails the pull request rather than rotting silently. On pushes to
+# the default branch the built HTML is deployed to GitHub Pages.
 
 on:
   pull_request:
@@ -10,6 +11,14 @@ on:
 
 permissions:
   contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent deployment; cancel in-progress runs of the same
+# group so a newer push supersedes an older Pages deploy.
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -33,9 +42,21 @@ jobs:
           pip install -r docs/requirements-docs.txt
       - name: Build HTML (warnings as errors)
         run: sphinx-build -W --keep-going -b html docs/source docs/_build/html
-      - name: Upload built docs
-        uses: actions/upload-artifact@v4
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          name: html-docs
           path: docs/_build/html
-          retention-days: 14
+
+  deploy:
+    # Publish to GitHub Pages only for pushes to the default branch; pull
+    # requests build (above) for validation but never deploy.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    needs: build
+    runs-on: ubuntu-22.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
