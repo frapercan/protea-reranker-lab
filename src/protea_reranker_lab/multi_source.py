@@ -11,6 +11,7 @@ Both columns are absent from the raw parquet dumps; they are injected by this
 module at iteration time, before any staging pipeline processes the batch.
 
 Design constraints (from the task spec and hard constraints):
+
 - NEVER torch GPU KNN / pgvector.  This module is pure CPU/numpy.
 - No physical all-PLM parquet: rows are streamed and concatenated lazily.
 - schema_sha is derived from ``"|".join(sorted(str(p) for p in manifest_uris))``,

@@ -4,7 +4,8 @@ Applies the GO DAG constraint: a parent term's score must be >= the maximum
 score of any of its children for the same protein. This ensures that
 predictions are "hierarchically consistent" (True-Path-Rule in scoring form).
 
-Algorithm (bottom-up over the DAG):
+Algorithm (bottom-up over the DAG)::
+
     For each protein independently, propagate scores UP the DAG:
         score[parent] = max(score[parent], max(score[child] for child in children))
     Repeat until no score changes (convergence), or for at most ``max_passes``

@@ -26,6 +26,7 @@ The sampler in :func:`audit_negative_sampling` draws negatives UNIFORMLY at
 RANDOM from the non-positive rows (label == 0) for each protein group.  The
 draw uses a seeded numpy RNG (same seed as the train/val split seed) for
 DETERMINISM.  It does NOT:
+
   - replicate rows to inflate the negative count.
   - weight negatives by any feature that correlates with the label.
   - use the ``lineage_*`` columns as selection criteria.

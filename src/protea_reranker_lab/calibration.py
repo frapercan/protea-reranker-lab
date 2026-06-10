@@ -4,6 +4,7 @@ Fits one calibrator per GO namespace (MFO, BPO, CCO) on the VALID window
 predictions, then applies it to score arrays before final reporting.
 
 Two calibration methods:
+
 - ``"isotonic"``: sklearn.isotonic.IsotonicRegression (non-parametric, monotone).
   Preferred for ranking outputs where the raw score ordering is correct but the
   scale is arbitrary.

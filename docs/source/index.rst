@@ -8,13 +8,26 @@ schema.
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents
+   :caption: Getting started
 
    overview
+   quickstart
+   workflow
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Concepts
+
    metrics
    ia_aligned_training
    universal_reranker
+
+.. toctree::
+   :maxdepth: 2
+   :caption: Reference
+
    reference/index
+   contributing
 
 Indices and tables
 ==================

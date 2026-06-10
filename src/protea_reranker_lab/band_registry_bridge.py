@@ -23,11 +23,11 @@ file-resolver walks ``IA_SEARCH_ROOTS`` in order and returns the first path
 whose basename (case-insensitive) matches any of the band's ``ia_tokens``.
 ``OBO_SEARCH_ROOTS`` is the analogous list for the ontology file.
 
-Environment overrides:
-  ``LAB_IA_<BAND>``   e.g. ``LAB_IA_V227=/path/to/IA.tsv``   (uppercase)
-  ``LAB_OBO_<BAND>``  e.g. ``LAB_OBO_V227=/path/to/go.obo``  (uppercase)
-These are the recommended escape hatch for CI environments or custom
-dataset layouts; they override the search-list entirely for that band.
+Environment overrides (the recommended escape hatch for CI environments or
+custom dataset layouts; they override the search-list entirely for that band):
+
+* ``LAB_IA_<BAND>``  e.g. ``LAB_IA_V227=/path/to/IA.tsv`` (uppercase)
+* ``LAB_OBO_<BAND>``  e.g. ``LAB_OBO_V227=/path/to/go.obo`` (uppercase)
 """
 
 from __future__ import annotations
@@ -348,6 +348,7 @@ def resolve_band_artifacts(
     overridden by the explicit keyword arguments.
 
     A ``BandMismatchError`` is raised when:
+
     - the band is unknown,
     - the resolved OBO version does not belong to the declared band (if the
       obo_path carries a version header), or

@@ -19,7 +19,16 @@ extensions = [
     "sphinx.ext.napoleon",
     "sphinx.ext.viewcode",
     "sphinx.ext.intersphinx",
+    "sphinx_copybutton",
+    "myst_parser",
 ]
+
+# MyST lets the published ADR / provenance Markdown files render inside
+# the Sphinx tree without conversion to reStructuredText.
+source_suffix = {
+    ".rst": "restructuredtext",
+    ".md": "markdown",
+}
 
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
@@ -63,6 +72,10 @@ suppress_warnings = ["ref.python"]
 napoleon_google_docstring = True
 napoleon_numpy_docstring = True
 napoleon_preprocess_types = True
+# Render dataclass ``Attributes:`` sections as info-field lists rather than
+# standalone attribute directives, so they do not duplicate the attribute
+# descriptions autodoc already emits for the same fields.
+napoleon_use_ivar = True
 
 # intersphinx mapping for standard library
 intersphinx_mapping = {
