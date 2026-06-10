@@ -1,7 +1,7 @@
 # protea-reranker-lab
 
 [![CI](https://github.com/frapercan/protea-reranker-lab/actions/workflows/quality.yml/badge.svg)](https://github.com/frapercan/protea-reranker-lab/actions/workflows/quality.yml)
-[![Docs](https://github.com/frapercan/protea-reranker-lab/actions/workflows/docs.yml/badge.svg)](https://frapercan.github.io/protea-reranker-lab/)
+[![Documentation](https://img.shields.io/readthedocs/protea-reranker-lab.svg)](https://protea-reranker-lab.readthedocs.io)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/protea-reranker-lab.svg)](https://pypi.org/project/protea-reranker-lab/)
@@ -97,8 +97,8 @@ PROTEA (export_research_dataset)
 
 ## Documentation
 
-Full documentation is published to GitHub Pages at
-https://frapercan.github.io/protea-reranker-lab/. It lives under `docs/`
+Full documentation is published to ReadTheDocs at
+https://protea-reranker-lab.readthedocs.io. It lives under `docs/`
 and builds with Sphinx:
 
 ```bash
