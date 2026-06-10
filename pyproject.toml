@@ -43,3 +43,17 @@ dev = [
     "mypy (>=2.1.0,<3.0.0)",
     "pytest (>=9.0.3,<10.0.0)"
 ]
+
+[tool.mypy]
+python_version = "3.12"
+files = ["src/protea_reranker_lab"]
+ignore_missing_imports = true
+
+# pyarrow ships ``py.typed`` but its ``compute`` namespace is populated at
+# import time, so functions such as ``pc.unique`` / ``pc.equal`` are invisible
+# to the static checker and raise spurious ``attr-defined`` errors. Treat the
+# heavy native deps as untyped instead of scattering per-line ``# type: ignore``.
+[[tool.mypy.overrides]]
+module = ["pyarrow.*", "lightgbm.*", "wandb.*"]
+follow_imports = "skip"
+follow_imports_for_stubs = true

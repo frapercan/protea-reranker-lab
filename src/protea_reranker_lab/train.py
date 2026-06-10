@@ -128,4 +128,5 @@ def main(argv: list[str] | None = None) -> None:
 
 
 if __name__ == "__main__":
-    sys.exit(main() or 0)
+    main()
+    sys.exit(0)

@@ -42,6 +42,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator
@@ -124,7 +125,7 @@ class MultiManifestSpec:
     @classmethod
     def from_manifest_paths(
         cls,
-        paths: list[Path | str],
+        paths: Sequence[Path | str],
         *,
         plm_overrides: dict[str, str] | None = None,
         k_overrides: dict[str, int] | None = None,
