@@ -1,9 +1,11 @@
 # protea-reranker-lab
 
+> Offline LightGBM reranker R&D for PROTEA: pull frozen feature datasets, train LambdaMART and binary boosters, calibrate per ontology aspect, evaluate with an IA-weighted `f_micro_w` metric, and publish winning boosters back to the platform by reference.
+
 [![CI](https://github.com/frapercan/protea-reranker-lab/actions/workflows/quality.yml/badge.svg)](https://github.com/frapercan/protea-reranker-lab/actions/workflows/quality.yml)
 [![Documentation](https://img.shields.io/readthedocs/protea-reranker-lab.svg)](https://protea-reranker-lab.readthedocs.io)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License: Unlicense](https://img.shields.io/badge/license-Unlicense-blue.svg)](https://unlicense.org/)
 [![PyPI](https://img.shields.io/pypi/v/protea-reranker-lab.svg)](https://pypi.org/project/protea-reranker-lab/)
 
 Offline LightGBM training laboratory for the PROTEA GO-term reranker.
@@ -417,4 +419,5 @@ Key constraints:
 
 ## License
 
-MIT. Copyright 2026 Francisco Miguel Pérez Canales. See `LICENSE`.
+Released into the public domain under [The Unlicense](https://unlicense.org/).
+Author: Francisco Miguel Pérez Canales. See [`LICENSE`](LICENSE).
