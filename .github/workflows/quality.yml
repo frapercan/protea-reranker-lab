@@ -18,8 +18,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Smell budget (master plan v3.2 §3)
         # Research sandbox: no test/coverage gate, but the smell budget
-        # prevents the lab from rotting further. Baseline records the
-        # 17 known offenders that already exist; new ones fail CI.
+        # prevents the lab from rotting further. The baseline records the
+        # known offenders that already exist; new ones fail CI.
         run: python scripts/check_smells.py --target src
 
   lint:
@@ -36,7 +36,28 @@ jobs:
       - name: Install ruff
         run: pip install ruff
       - name: ruff check (syntax + obvious bugs)
-        # Research code; ruff with default rules only — catches
-        # syntax errors, undefined names, and trivial dead code
-        # without imposing PEP8 strictness on iterative experiments.
-        run: ruff check src/ scripts/ || true
+        # Research code; ruff with default rules only catches syntax
+        # errors, undefined names, and trivial dead code without imposing
+        # PEP8 strictness on iterative experiments. The tree is clean, so
+        # this gate now blocks rather than advising.
+        run: ruff check src/ scripts/
+
+  typecheck:
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install poetry
+        run: pipx install poetry
+      - name: Install lab + dev deps
+        run: poetry install --quiet
+      - name: mypy
+        # Configuration lives in pyproject.toml ([tool.mypy]); the package
+        # type-checks clean. Native deps are treated as untyped there.
+        run: poetry run mypy

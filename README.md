@@ -89,9 +89,24 @@ PROTEA (export_research_dataset)
             → PROTEA RerankerModel registry
 ```
 
+## Documentation
+
+Full documentation lives under `docs/` and builds with Sphinx:
+
+```bash
+poetry install
+poetry run sphinx-build -W -b html docs/source docs/_build/html
+```
+
+It covers a quickstart, a stage-by-stage workflow tour (pooled staging,
+features, LambdaMART training, calibration, evaluation), the evaluation
+metrics and IA-weighted `f_micro_w` evaluator, the universal booster, a
+contributing guide, and a full per-module API reference. Release notes
+are tracked in [`CHANGELOG.md`](CHANGELOG.md).
+
 ## Install
 
-Python 3.11 or later is required.
+Python 3.12 or later is required.
 
 ```bash
 git clone https://github.com/frapercan/protea-reranker-lab.git
@@ -104,7 +119,7 @@ pip install -e ".[dev]"   # + ruff / mypy / sphinx
 
 ## Dataset pull, train, evaluate, import flow
 
-### Step 1 — pull dataset from PROTEA
+### Step 1: pull dataset from PROTEA
 
 Dispatch an `export_research_dataset` job through the PROTEA REST API.
 Never pull via ad-hoc curl; use the `POST /datasets` endpoint:
@@ -124,7 +139,7 @@ The job writes `train.parquet`, `eval.parquet`, and `manifest.json`
 to PROTEA's storage. Download those three files into
 `datasets/<your-dataset-name>/` before running the lab.
 
-### Step 2 — train
+### Step 2: train
 
 The CLI entry-point is `protea_reranker_lab.train`:
 
@@ -149,7 +164,7 @@ python scripts/run_study.py f2        # 39 ablation specs (leave-one-family-out)
 python scripts/run_study.py f4        # 27 hparam-grid specs
 ```
 
-### Step 3 — evaluate
+### Step 3: evaluate
 
 Evaluation runs automatically at the end of each training call and
 writes `test_fmax` to `run.json`. To recompute metrics on an existing
@@ -175,7 +190,7 @@ python scripts/summarise_study.py
 # writes runs/study_<name>/SUMMARY.md
 ```
 
-### Step 4 — compare vs KNN baseline
+### Step 4: compare vs KNN baseline
 
 Run the paired bootstrap to obtain confidence intervals:
 
@@ -189,7 +204,7 @@ python scripts/run_bootstrap_phase.py \
   --out runs/nk-mfo-seed42/bootstrap.json
 ```
 
-### Step 5 — import winner to PROTEA
+### Step 5: import winner to PROTEA
 
 ```bash
 curl -s -X POST http://localhost:3000/api/v1/reranker-models/import-by-reference \
@@ -286,10 +301,10 @@ is pending:
 
 | Slice | PR | Surface |
 |-------|----|---------|
-| F-DATA-PACK.1 | #48 | `scripts/validate_manifest.py` — schema + content-hash validator wired into CI |
-| F-DATA-PACK.2 | #49 | `scripts/generate_dataset_readme.py` — auto-generates `datasets/<name>/README.md`; 11 cells emitted |
-| F-DATA-PACK.3 | #50 | `dataset_cards/<plm>_card.md` — 8 per-PLM HuggingFace-style dataset cards |
-| F-DATA-PACK.4 | #51 | `docs/dataset_provenance.md` — FAIR checklist, split methodology, PCA fit policy, leakage note |
+| F-DATA-PACK.1 | #48 | `scripts/validate_manifest.py`: schema + content-hash validator wired into CI |
+| F-DATA-PACK.2 | #49 | `scripts/generate_dataset_readme.py`: auto-generates `datasets/<name>/README.md`; 11 cells emitted |
+| F-DATA-PACK.3 | #50 | `dataset_cards/<plm>_card.md`: 8 per-PLM HuggingFace-style dataset cards |
+| F-DATA-PACK.4 | #51 | `docs/dataset_provenance.md`: FAIR checklist, split methodology, PCA fit policy, leakage note |
 | F-DATA-PACK.5 | pending | Zenodo/HuggingFace Hub deposit of the 24-dataset grid |
 
 **Validate a manifest before training:**
@@ -359,8 +374,10 @@ artefacts is deselected in CI; see the workflow comment for context.
 
 ```bash
 ruff check src scripts
-mypy src
-cd docs && make html
+mypy
+poetry run pytest -q tests/
+python scripts/check_smells.py --target src
+poetry run sphinx-build -W -b html docs/source docs/_build/html
 ```
 
 The CI reranker-token linter rejects bare reranker shorthand tokens
@@ -375,7 +392,7 @@ All changes go to `develop`; `main` tracks stable releases.
 git checkout develop && git checkout -b feature/my-feature
 pip install -e ".[dev]"
 python scripts/run.py experiments/example.yaml  # smoke test
-ruff check src scripts && mypy src && cd docs && make html
+ruff check src scripts && mypy && poetry run pytest -q tests/
 gh pr create -B develop --title "feat: ..." --body "..."
 ```
 
