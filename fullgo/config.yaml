@@ -1,0 +1,50 @@
+# fullgo configuration — frozen recipe (change only via SELECT validation)
+
+db_url: postgresql://protea:protea@localhost:5432/protea
+
+# 6-PLM concat (order matters; first is the base in extract_base_plm.py, rest appended)
+plm_configs:
+  ankh_base:   "08234f06-ba76-4d7d-aaec-ae601096b4fa"   # 768
+  esm2_3b:     "55e43f1c-1a3b-4b1d-88c0-26b433f5f673"   # 2560
+  ankh_large:  "238f79b1-3068-4c6f-9013-5cc52b4f662b"   # 1536
+  esm2_650m:   "c2e9dda3-e505-4170-b50d-435a451761ac"   # 1280
+  esmc_600m:   "2bf1e753-022f-44b8-a131-9a90acb4024e"   # 1152
+  prott5:      "084943c6-fec1-441d-bdc5-63b0268ada1b"   # 1024
+# total concat dim = 8320
+
+annotation_sets:
+  v220: "1559d9f7-195d-4892-af16-8b58f7fc9942"   # SELECT t0
+  v227: "c905dffa-a5ce-430b-b17b-503e88666adb"   # TEST t0 (= LAFA Sep_2025, release 227, 2025-09-04)
+  v230: "2394b9a1-21df-4c2b-89af-3da084318fab"   # TEST t1 (= LAFA Mar_2026, release 230, 2026-03-04)
+
+experimental_codes: [EXP, IDA, IMP, IPI, IGI, IEP, TAS, IC, HTP, HDA, HMP, HGI, HEP]
+
+classifier:
+  hidden: 1024
+  layers: 2
+  dropout: 0.2
+  loss: asl            # asymmetric loss
+  asl_gamma_neg: 4.0
+  asl_gamma_pos: 1.0
+  asl_clip: 0.05
+  epochs: 30
+  lr: 1.0e-3
+  weight_decay: 1.0e-5
+  top_k_predictions: 100
+
+ensemble:
+  model: lightgbm
+  num_boost_round: 300
+  learning_rate: 0.05
+  num_leaves: 31
+  min_data_in_leaf: 50
+  feature_fraction: 0.9
+  candidates: union   # union(KNN terms, classifier terms) -> removes KNN recall ceiling
+  per_category: true  # NK / LK / PK separate boosters
+
+# LAFA exact-harness artifacts (the only leaderboard-comparable scoring)
+harness:
+  obo: /home/frapercan/Thesis2/protea-lafa-knn/lafa_t0_Sep_2025/go-basic.obo   # Sep_2025
+  ia:  /home/frapercan/Thesis2/protea-lafa-knn/lafa_t0_Sep_2025/IA.tsv
+  release: /home/frapercan/Thesis2/CAFA_forever/data/releases/Sep_2025_Mar_2026
+  flags: "-prop fill -norm cafa -no_orphans -toi groundtruth_terms_of_interest.txt -known(exclude) groundtruth_PK_known.tsv"
