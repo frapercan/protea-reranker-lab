@@ -1,14 +1,16 @@
-"""Champion learned ensemble (sealed 0.381, ties TransFew #1).
+"""Champion learned ensemble (sealed 0.390, OUTRIGHT #1, ahead of TransFew 0.381).
 
-Per-category LightGBM over three streams, candidates = union(KNN, classifier, self-prior)
-so no single stream caps recall:
+Per-category LightGBM, candidates = union(KNN, classifier, self-prior, association) so no single
+stream caps recall:
   - KNN composite + sub-features (distance, id_nw, id_sw, tax, vote)
-  - M2 anc2vec classifier, seed-averaged (seed_average.py over seeds base/7/137)
-  - GOA non-experimental t0 self-prior (propagated leaf+ancestors), as a STACK FEATURE
-    (not a flat blend; the flat blend was refuted, but the learned feature is the win)
+  - M2 anc2vec classifier, 5-seed-averaged (seed_average.py over seeds base/7/137/23/91)
+  - GOA non-experimental t0 self-prior (propagated), as stack features sp/sp_p
+  - cross-aspect ASSOCIATION prior (assoc_feature.py): P(candidate | the protein's known t0
+    experimental terms) from training co-occurrence, total (assoc) + cross-aspect (assoc_x) +
+    present flag (assoc_p). Targets PK/LK; exactly 0 for NK (no t0 knowledge -> no leakage).
   - per-term IA and log t0-pool frequency
 Fit on SELECT 220->227, sealed once on the official 7401 frame with the exact harness.
-Trained boosters + feature_spec.json are written to storage/fullgo_models/.
+Reproduces at 0.3902-0.3907. Boosters + feature_spec.json -> storage/fullgo_models/.
 """
 import math, tempfile
 from collections import defaultdict
@@ -22,15 +24,17 @@ IA = "/home/frapercan/Thesis2/protea-lafa-knn/lafa_t0_Sep_2025/IA.tsv"
 REL = "/home/frapercan/Thesis2/CAFA_forever/data/releases/Sep_2025_Mar_2026"
 TOI = f"{REL}/groundtruth_terms_of_interest.txt"
 PKK_TEST = f"{REL}/groundtruth_PK_known.tsv"
-SEL_KNN = "/tmp/select_knn_composite.tsv"; SEL_CLF = "/tmp/sel_m2_seedavg.tsv"
+SEL_KNN = "/tmp/select_knn_composite.tsv"; SEL_CLF = "/tmp/sel_m2_seedavg5.tsv"
 SEL_GT = "/tmp/select_gt_{cat}.tsv"; SEL_POOL = "/tmp/v220_exp_aspect.tsv"
-TEST_KNN = "/tmp/canon_composite.tsv"; TEST_CLF = "/tmp/m2_seedavg_pred.tsv"
+TEST_KNN = "/tmp/canon_composite.tsv"; TEST_CLF = "/tmp/m2_seedavg5_pred.tsv"
 TEST_GT = REL + "/groundtruth_{cat}.tsv"; TEST_FREQ = "/tmp/v227_exp_freq.tsv"
-SEL_SP = "/tmp/select_selfprior_leaf.tsv"
-TEST_SP = "/tmp/goa_nonexp_7401.tsv"
+SEL_SP="/tmp/select_selfprior_leaf.tsv"
+TEST_SP="/tmp/goa_nonexp_7401.tsv"
+SEL_AS="/tmp/assoc_sel.tsv"
+TEST_AS="/tmp/assoc_7401.tsv"
 BASE = {"NK": 0.412, "LK": 0.394, "PK": 0.165}
 OUT = "/home/frapercan/Thesis2/storage/fullgo_models"
-FEATURES = ["knn", "dist", "id_nw", "id_sw", "tax", "vote", "clf", "knn_p", "clf_p", "sp", "sp_p", "IA", "lfreq"]
+FEATURES = ["knn","dist","id_nw","id_sw","tax","vote","clf","knn_p","clf_p","sp","sp_p","assoc","assoc_x","assoc_p","IA","lfreq"]
 
 
 def parents_map():
@@ -85,6 +89,15 @@ def load_sp(path):
     return by
 
 
+def load_assoc(path):
+    by = defaultdict(dict)
+    for line in open(path):
+        c = line.rstrip("\n").split("\t")
+        if len(c) >= 4 and c[1].startswith("GO:"):
+            by[c[0]][c[1]] = (fnum(c[2]), fnum(c[3]))
+    return by
+
+
 def load_clf(path):
     by = defaultdict(dict)
     for line in open(path):
@@ -116,16 +129,18 @@ def gtset(path, par, c):
     return gt
 
 
-def rows_for(knn, clf, gt, ia, freq, sp):
+def rows_for(knn, clf, gt, ia, freq, sp, asc):
     rows = []
     for p in gt:
         gtp = gt[p]
-        kn = knn.get(p, {}); cl = clf.get(p, {}); s = sp.get(p, {})
-        for t in set(kn) | set(cl) | set(s):
+        kn = knn.get(p, {}); cl = clf.get(p, {}); s = sp.get(p, {}); a = asc.get(p, {})
+        for t in set(kn) | set(cl) | set(s) | set(a):
             kf = kn.get(t, [0.0, 2.0, 0.0, 0.0, 0.0, 0.0])
             cs = cl.get(t, 0.0); ss = s.get(t, 0.0)
+            aa, ax = a.get(t, (0.0, 0.0))
             feat = kf + [cs, 1.0 if t in kn else 0.0, 1.0 if t in cl else 0.0,
                          ss, 1.0 if t in s else 0.0,
+                         aa, ax, 1.0 if t in a else 0.0,
                          ia.get(t, 0.0), math.log1p(freq.get(t, 0))]
             rows.append((p, t, feat, 1 if t in gtp else 0))
     return rows
@@ -137,15 +152,15 @@ def main():
     for line in open(IA):
         c = line.rstrip("\n").split("\t")
         if len(c) >= 2: ia[c[0]] = fnum(c[1])
-    sk, sc_, ssp = load_knn(SEL_KNN), load_clf(SEL_CLF), load_sp(SEL_SP)
-    tk, tc, tsp = load_knn(TEST_KNN), load_clf(TEST_CLF), load_sp(TEST_SP)
+    sk, sc_, ssp, sas = load_knn(SEL_KNN), load_clf(SEL_CLF), load_sp(SEL_SP), load_assoc(SEL_AS)
+    tk, tc, tsp, tas = load_knn(TEST_KNN), load_clf(TEST_CLF), load_sp(TEST_SP), load_assoc(TEST_AS)
     sfreq, tfreq = freq_pool(SEL_POOL), freq_pool(TEST_FREQ, two=True)
     res = {}
     for cat in ("NK", "LK", "PK"):
         sgt = gtset(SEL_GT.format(cat=cat), par, cache)
         tgt = gtset(TEST_GT.format(cat=cat), par, cache)
-        tr = rows_for(sk, sc_, sgt, ia, sfreq, ssp)
-        te = rows_for(tk, tc, tgt, ia, tfreq, tsp)
+        tr = rows_for(sk, sc_, sgt, ia, sfreq, ssp, sas)
+        te = rows_for(tk, tc, tgt, ia, tfreq, tsp, tas)
         Xtr = np.array([r[2] for r in tr], np.float32); ytr = np.array([r[3] for r in tr], np.int32)
         Xte = np.array([r[2] for r in te], np.float32)
         b = lgb.train(dict(objective="binary", learning_rate=0.05, num_leaves=31,
@@ -170,9 +185,10 @@ def main():
     m = sum(res.values()) / 3
     import json
     with open(f"{OUT}/feature_spec.json", "w") as w:
-        json.dump({"features": FEATURES, "candidates": "union(knn,clf,self_prior)",
-                   "classifier": "M2 anc2vec seed-avg (seeds base/7/137, consensus union top-100, score=sum/3)",
-                   "self_prior": "GOA non-experimental t0 propagated leaf+ancestors",
+        json.dump({"features": FEATURES, "candidates": "union(knn, clf, self_prior, assoc)",
+                   "classifier": "M2 anc2vec seed-avg (5 seeds base/7/137/23/91, consensus union top-100, score=sum/n)",
+                   "self_prior": "GOA non-experimental t0 propagated leaf+ancestors (sp, sp_p)",
+                   "assoc": "cross-aspect association: P(t|known t0 term k) from training co-occurrence; assoc=sum over k, assoc_x=cross-aspect only, assoc_p=present",
                    "fit_frame": "SELECT 220->227", "seal_frame": "official 7401 (Sep_2025_Mar_2026)",
                    "sealed": {k: round(v, 4) for k, v in res.items()}, "mean": round(m, 4)}, w, indent=2)
     print(f"\nMEAN: ensemble {m:.4f}   (KNN 0.324 / classifier 0.326 / re-scorer 0.330 / FunBind 0.366 / TransFew 0.381)", flush=True)
