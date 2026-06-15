@@ -26,19 +26,19 @@ SELECT: prediction set 746e68e4 (ref v220). Export via `GET /scoring/prediction-
     # SELECT frame (v220 labels, 220->227 eval proteins)
     $PY extract_select_frame.py    # -> sel_data.npz
 
-## 3. Train the M2 classifier per seed and seed-average (5 seeds)
+## 3. Train the M2 classifier per seed and seed-average (7 seeds)
 
-The champion classifier is the M2 anc2vec hybrid, seed-averaged over 5 seeds (base + 7 + 137 + 23 + 91).
+The champion classifier is the M2 anc2vec hybrid, seed-averaged over 7 seeds (base + 7 + 137 + 23 + 91 + 31 + 53).
 Run each seed on both frames, then combine the consensus union (score = sum/n):
 
     # TEST frame
     $PY train_classifier_m2.py m0v3_data.npz m2_pred_base.tsv
-    for S in 7 137 23 91; do $PY train_classifier_m2.py m0v3_data.npz m2_pred_s$S.tsv --seed $S; done
-    $PY seed_average.py m2_seedavg5_pred.tsv m2_pred_base.tsv m2_pred_s7.tsv m2_pred_s137.tsv m2_pred_s23.tsv m2_pred_s91.tsv
+    for S in 7 137 23 91 31 53; do $PY train_classifier_m2.py m0v3_data.npz m2_pred_s$S.tsv --seed $S; done
+    $PY seed_average.py m2_seedavg7_pred.tsv m2_pred_base.tsv m2_pred_s7.tsv m2_pred_s137.tsv m2_pred_s23.tsv m2_pred_s91.tsv m2_pred_s31.tsv m2_pred_s53.tsv
     # SELECT frame
     $PY train_classifier_m2.py sel_data.npz sel_m2_base.tsv
-    for S in 7 137 23 91; do $PY train_classifier_m2.py sel_data.npz sel_m2_s$S.tsv --seed $S; done
-    $PY seed_average.py sel_m2_seedavg5.tsv sel_m2_base.tsv sel_m2_s7.tsv sel_m2_s137.tsv sel_m2_s23.tsv sel_m2_s91.tsv
+    for S in 7 137 23 91 31 53; do $PY train_classifier_m2.py sel_data.npz sel_m2_s$S.tsv --seed $S; done
+    $PY seed_average.py sel_m2_seedavg7.tsv sel_m2_base.tsv sel_m2_s7.tsv sel_m2_s137.tsv sel_m2_s23.tsv sel_m2_s91.tsv sel_m2_s31.tsv sel_m2_s53.tsv
 
 ## 4. Self-prior stream (GOA non-experimental t0, propagated)
 
@@ -56,14 +56,21 @@ total and cross-aspect association P(t|known k):
     $PY assoc_feature.py sel_data.npz  eval_labels_sel.npz  assoc_sel.tsv
     $PY assoc_feature.py m0v3_data.npz eval_labels_7401.npz assoc_7401.tsv
 
-## 6. Champion ensemble (fit SELECT, seal TEST) -> 0.390
+## 6. Champion ensemble (fit SELECT, seal TEST) -> 0.391
 
-    $PY ensemble_seal.py     # NK 0.472 / LK 0.481 / PK 0.217 / MEAN 0.390 (OUTRIGHT #1)
+    $PY ensemble_seal.py     # NK 0.477 / LK 0.482 / PK 0.215 / MEAN 0.391 (OUTRIGHT #1)
                              # writes ensemble_gbm_{NK,LK,PK}.txt + feature_spec.json to storage/fullgo_models/
 
-## 7. Standalone scoring with the exact harness
+## 7. SELECT-internal leakage check (never touches TEST)
 
-    $PY evaluate_exact_harness.py --pred m2_seedavg5_pred.tsv --toi   # 5-seed classifier alone on 7401
+    $PY select_cv.py none    # KNN + 7-seed clf + self-prior          -> 0.4424
+    $PY select_cv.py v1      # + association (champion)               -> 0.4477 (7-seed)
+    $PY select_cv.py v2      # + association v2 (rejected, PK/LK swap) -> 0.4444
+    # 50/50 protein split within SELECT 220->227; confirms each lever generalises off-TEST.
+
+## 8. Standalone scoring with the exact harness
+
+    $PY evaluate_exact_harness.py --pred m2_seedavg7_pred.tsv --toi   # 7-seed classifier alone on 7401
 
 ## Notes
 
@@ -72,6 +79,6 @@ total and cross-aspect association P(t|known k):
   from the platform eval-set download endpoints (eval set a3be0a6d).
 - The association feature is leakage-clean by construction: it uses only each protein's t0-known
   experimental terms (the CAFA "known" partition), so its GBM importance is exactly 0 on NK.
-- LightGBM run-to-run variance is small (the 0.390 mean reproduces at 0.3902-0.3907).
+- LightGBM run-to-run variance is small (the 0.391 mean reproduces ~0.390-0.391).
 - The recipe is FROZEN. Any change (more PLMs, label semantics, scale, seeds) must beat the current numbers
   on SELECT before being sealed on 7401.

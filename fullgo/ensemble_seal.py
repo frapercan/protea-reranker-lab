@@ -1,16 +1,16 @@
-"""Champion learned ensemble (sealed 0.390, OUTRIGHT #1, ahead of TransFew 0.381).
+"""Champion learned ensemble (sealed 0.391, OUTRIGHT #1, ahead of TransFew 0.381).
 
 Per-category LightGBM, candidates = union(KNN, classifier, self-prior, association) so no single
 stream caps recall:
   - KNN composite + sub-features (distance, id_nw, id_sw, tax, vote)
-  - M2 anc2vec classifier, 5-seed-averaged (seed_average.py over seeds base/7/137/23/91)
+  - M2 anc2vec classifier, 7-seed-averaged (seed_average.py over seeds base/7/137/23/91/31/53)
   - GOA non-experimental t0 self-prior (propagated), as stack features sp/sp_p
   - cross-aspect ASSOCIATION prior (assoc_feature.py): P(candidate | the protein's known t0
     experimental terms) from training co-occurrence, total (assoc) + cross-aspect (assoc_x) +
     present flag (assoc_p). Targets PK/LK; exactly 0 for NK (no t0 knowledge -> no leakage).
   - per-term IA and log t0-pool frequency
 Fit on SELECT 220->227, sealed once on the official 7401 frame with the exact harness.
-Reproduces at 0.3902-0.3907. Boosters + feature_spec.json -> storage/fullgo_models/.
+Reproduces ~0.391 (7-seed); SELECT-internal held-out validated (select_cv.py). Boosters + feature_spec.json -> storage/fullgo_models/.
 """
 import math, tempfile
 from collections import defaultdict
@@ -24,9 +24,9 @@ IA = "/home/frapercan/Thesis2/protea-lafa-knn/lafa_t0_Sep_2025/IA.tsv"
 REL = "/home/frapercan/Thesis2/CAFA_forever/data/releases/Sep_2025_Mar_2026"
 TOI = f"{REL}/groundtruth_terms_of_interest.txt"
 PKK_TEST = f"{REL}/groundtruth_PK_known.tsv"
-SEL_KNN = "/tmp/select_knn_composite.tsv"; SEL_CLF = "/tmp/sel_m2_seedavg5.tsv"
+SEL_KNN = "/tmp/select_knn_composite.tsv"; SEL_CLF = "/tmp/sel_m2_seedavg7.tsv"
 SEL_GT = "/tmp/select_gt_{cat}.tsv"; SEL_POOL = "/tmp/v220_exp_aspect.tsv"
-TEST_KNN = "/tmp/canon_composite.tsv"; TEST_CLF = "/tmp/m2_seedavg5_pred.tsv"
+TEST_KNN = "/tmp/canon_composite.tsv"; TEST_CLF = "/tmp/m2_seedavg7_pred.tsv"
 TEST_GT = REL + "/groundtruth_{cat}.tsv"; TEST_FREQ = "/tmp/v227_exp_freq.tsv"
 SEL_SP="/tmp/select_selfprior_leaf.tsv"
 TEST_SP="/tmp/goa_nonexp_7401.tsv"
@@ -186,7 +186,7 @@ def main():
     import json
     with open(f"{OUT}/feature_spec.json", "w") as w:
         json.dump({"features": FEATURES, "candidates": "union(knn, clf, self_prior, assoc)",
-                   "classifier": "M2 anc2vec seed-avg (5 seeds base/7/137/23/91, consensus union top-100, score=sum/n)",
+                   "classifier": "M2 anc2vec seed-avg (7 seeds base/7/137/23/91/31/53, consensus union top-100, score=sum/n)",
                    "self_prior": "GOA non-experimental t0 propagated leaf+ancestors (sp, sp_p)",
                    "assoc": "cross-aspect association: P(t|known t0 term k) from training co-occurrence; assoc=sum over k, assoc_x=cross-aspect only, assoc_p=present",
                    "fit_frame": "SELECT 220->227", "seal_frame": "official 7401 (Sep_2025_Mar_2026)",
