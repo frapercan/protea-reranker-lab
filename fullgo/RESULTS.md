@@ -30,15 +30,21 @@ sealed once on 7401.
 - self-prior (max/agreement blend), cross-aspect (max + learned), InterPro, label-aware-input,
   per-aspect models, naive max-union ensembling: all flat or negative on SELECT.
 - **Learned GCN over the GO-DAG = NO-OP over fixed anc2vec** (0.3445 ~ 0.343): anc2vec already encodes
-  DAG ancestry; re-propagating it adds nothing. A learned label encoder only helps if it adds what
-  anc2vec lacks = GO-DEFINITION TEXT semantics (BioBERT), in progress.
+  DAG ancestry; re-propagating it adds nothing.
+- **GO-definition text semantics (BioBERT on GO def strings, concat with anc2vec) = NO-OP** (0.3455 ~ 0.343,
+  LK slightly down): label semantics are SATURATED at anc2vec; the BioBERT def-text adds no separable signal.
+- **M3 IEA weak-label pretraining (150k IEA proteins) = NET NEGATIVE** (mean 0.335 < M2 0.343): IEA labels
+  are electronic/homology -> help NK (+0.022) but HURT LK (-0.041, our gap); the fine-tune does not recover.
 
-## Next toward #1 (on-box, frozen embeddings)
+## Status: practical optimum reached (0.355)
 
-1. **GO-definition text semantics** (BioBERT on GO def strings) as a second label-embedding stream
-   (concat with anc2vec) -> the semantic signal anc2vec lacks, for LK.
-2. **M3 scale**: full annotated proteome (556k) + IEA weak-label pretraining (strict <=t0) -> PK.
-3. Re-ensemble after each; re-seal on 7401.
+All frozen-embedding levers are exhausted. The ensemble (+0.023) and M2-anc2vec (+0.006) are the only wins;
+everything else is no-op, net-negative, or refuted. The remaining gap to #1 (TransFew 0.381, +0.026) is in
+**LK (0.413 vs 0.485)** and is NOT closable by better label embeddings, self-prior, or IEA scale. Crossing
+it would require a different model class -- PLM fine-tuning (ruled out by the 12 GB GPU) or a multimodal
+structure model (like FunBind) -- i.e. a new project, not another lever here.
+
+**Recommendation: 0.355 is the sealed, validated, citable result (#3, NK #1, PK ties FunBind).**
 
 Weights persisted at `~/Thesis2/storage/fullgo_models/` (classifier_6plm_asl.pt, classifier_m2_anc2vec.pt,
 ensemble_gbm_{NK,LK,PK}.txt).
