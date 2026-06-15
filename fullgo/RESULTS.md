@@ -12,13 +12,35 @@ sealed once on 7401.
 | classifier + M2 label-semantics (anc2vec) | 0.414 | 0.420 | 0.195 | 0.343 | hybrid: indep head + protein@anc2vec.T |
 | + KNN-classifier ensemble (single seed) | 0.446 | 0.423 | 0.204 | 0.358 | union candidates, per-category GBM |
 | + seed-averaged classifier + self-prior feature | 0.464 | 0.465 | 0.215 | 0.381 | ties #1 |
-| **+ cross-aspect association + 5-seed avg** | **0.472** | **0.481** | **0.217** | **0.390** | **champion, OUTRIGHT #1** |
+| + cross-aspect association + 5-seed avg | 0.472 | 0.481 | 0.217 | 0.390 | outright #1 |
+| **+ 7-seed avg** | **0.477** | **0.482** | **0.215** | **0.391** | **champion, OUTRIGHT #1** |
 | FunBind (#2) | 0.441 | 0.451 | 0.205 | 0.366 |  |
 | TransFew (#1) | 0.428 | 0.485 | 0.230 | 0.381 |  |
 
-**Champion: 0.390 = OUTRIGHT #1, ahead of TransFew (0.381), leakage-clean.** NK 0.472 is #1 by a wide
-margin (TransFew 0.428). LK 0.481 matches TransFew's LK lead (0.485). PK 0.217 still trails TransFew
-(0.230) but the mean wins. Reproduces at 0.3902-0.3907 (LightGBM run-to-run ~0.0005).
+**Champion: 0.391 = OUTRIGHT #1, ahead of TransFew (0.381).** NK 0.477 is #1 by a wide margin
+(TransFew 0.428). LK 0.482 matches TransFew's LK lead (0.485). PK 0.215 still trails TransFew (0.230) but
+the mean wins. Reproduces ~0.390-0.391.
+
+## Leakage discipline and SELECT-internal validation
+
+All hyperparameters and GBM weights are fit on SELECT 220->227; the 227->230 TEST frame is sealed once and
+the GBM never sees it. The one residual exposure is *which levers to include* being read off the sealed
+TEST mean (adaptive feature selection across a handful of binary choices). To remove even that, `select_cv.py`
+re-decides the levers on a 50/50 protein split WITHIN SELECT (held-out, never touches TEST):
+
+| Config | SELECT-internal held-out mean |
+|---|---|
+| KNN + 7-seed clf + self-prior (no association) | 0.4424 |
+| + association v1 (TOPN80, rank a_all) | 0.4450 |
+| + association v2 (TOPN200, rank lift) | 0.4444 |
+| + association v1, **7-seed avg** | **0.4477** |
+
+This confirms, without touching TEST, that (a) the association feature generalises (+0.0026 over no-assoc,
+mostly in PK), (b) v1 > v2 (so v2's PK/LK tradeoff is correctly rejected, same ordering as TEST), and
+(c) 7-seed > 5-seed (+0.0027). The SELECT-internal deltas are smaller than the TEST deltas, so part of the
+exact TEST margin over TransFew carries frame-specific optimism; the levers themselves are real and
+positive on held-out SELECT. Absolute SELECT-internal numbers run higher than TEST because the held-out
+split shares the training distribution; only the cross-config delta transfers.
 
 ## The levers that reached #1
 
@@ -68,10 +90,11 @@ All fit/selected on SELECT 220->227, then sealed once. From the 0.358 ensemble t
 - **Experimental-only KNN (drop non-experimental transfers) = NEGATIVE** (0.336): removes NK coverage.
 - LAFA experimental evidence codes verified to match PROTEA's `EXPERIMENTAL` frozenset exactly.
 
-## Status: champion sealed (0.390, OUTRIGHT #1)
+## Status: champion sealed (0.391, OUTRIGHT #1)
 
-The champion is `ensemble_seal.py` (5-seed-averaged M2 classifier + KNN + self-prior feature +
-cross-aspect association prior). Boosters and spec persisted at `~/Thesis2/storage/fullgo_models/`
+The champion is `ensemble_seal.py` (7-seed-averaged M2 classifier + KNN + self-prior feature +
+cross-aspect association prior), SELECT-internal validated (`select_cv.py`). Boosters and spec persisted at
+`~/Thesis2/storage/fullgo_models/`
 (classifier_6plm_asl.pt, classifier_m2_anc2vec.pt, ensemble_gbm_{NK,LK,PK}.txt, feature_spec.json).
 NK is #1 by a wide margin, LK matches the TransFew lead; the only cell still behind is PK (0.217 vs 0.230),
 so the remaining headroom is there (heavier scale / more PK-specific priors). Reproduce with `REPRODUCE.md`.
