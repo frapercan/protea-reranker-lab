@@ -2,6 +2,7 @@
 name = "protea-reranker-lab"
 version = "0.2.0"
 description = "Research sandbox for iterating on PROTEA's GO-term reranker."
+authors = [{name = "Francisco Miguel Pérez Canales", email = "frapercan1@alum.us.es"}]
 requires-python = ">=3.12,<4.0"
 license = {text = "Unlicense"}
 classifiers = [
