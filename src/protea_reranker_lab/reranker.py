@@ -70,6 +70,13 @@ class TrainConfig:
     seed: int = 42
     enabled_feature_families: list[str] | None = None
     drop_features: list[str] = field(default_factory=list)
+    # Combiner mode (MR-2): when set, the booster trains over EXACTLY this
+    # explicit, ordered column list (the small score vector) instead of the
+    # contracts feature families. Bypasses ``enabled_feature_families`` /
+    # ``FEATURE_FAMILIES`` resolution entirely; ``drop_features`` still applies
+    # so an operator can ablate one score from the vector. ``None`` keeps the
+    # historical monolith behaviour byte-for-byte.
+    feature_override: list[str] | None = None
     # Palanca 1: Information-Accretion sample weighting. ``none`` keeps the
     # historical uniform-weight behaviour (the v26/v27-binary champion).
     ia_weighting: str = "none"
@@ -91,7 +98,14 @@ class TrainConfig:
     k_inference_policy: str = "fixed"
 
     def selected_features(self) -> list[str]:
-        if self.enabled_feature_families is None:
+        if self.feature_override is not None:
+            # Combiner mode: train over exactly the supplied score-vector
+            # columns, in order. These are explicit raw parquet columns that may
+            # NOT live in the contracts ALL_FEATURES schema (the score-vector
+            # signals ride GOPrediction.features per PROTEA #643); staging reads
+            # any named parquet column directly, so no contracts-family lookup.
+            feats = list(self.feature_override)
+        elif self.enabled_feature_families is None:
             feats = list(ALL_FEATURES)
         else:
             feats = []

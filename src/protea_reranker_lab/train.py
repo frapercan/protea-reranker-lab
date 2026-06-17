@@ -13,8 +13,17 @@ import sys
 from pathlib import Path
 
 from protea_contracts import FEATURE_FAMILIES
+from .combiner import DEFAULT_COMBINER_COLUMNS, resolve_combiner_columns
 from .experiment import DatasetRef, ExperimentSpec, ModelSpec, SweepRef, TrainingSpec
 from .runner import run_experiment
+
+#: Monolith default for ``--num-leaves`` (mirrors the parser default below). Used
+#: to detect whether the operator explicitly tuned the leaf count so combiner
+#: mode only shrinks it when left at the default.
+_MONOLITH_NUM_LEAVES_DEFAULT = 63
+#: Shallow leaf count for the combiner (a handful of score-vector inputs do not
+#: need 63 leaves; a small tree keeps the meta-learner low-variance / calibrated).
+_COMBINER_NUM_LEAVES_DEFAULT = 15
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -41,6 +50,17 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--temporal-holdout", "--temporal_holdout", dest="temporal_holdout", default=None)
     p.add_argument("--drop-feature-family", "--drop_feature_family",
                    dest="drop_feature_family", action="append", default=[])
+    # MR-2 combiner mode: train the SHALLOW per-category combiner over the small
+    # score vector instead of the 73-feature monolith. Additive + opt-in; when
+    # absent the monolith path is byte-for-byte unchanged.
+    p.add_argument("--combiner", dest="combiner", action="store_true",
+                   help="Train the shallow per-category combiner over the score "
+                        "vector (MR-2) instead of the 73-feature monolith.")
+    p.add_argument("--combiner-columns", "--combiner_columns",
+                   dest="combiner_columns", default=None,
+                   help="Comma-separated explicit score-vector columns for the "
+                        "combiner (overrides the per-category default "
+                        f"{','.join(DEFAULT_COMBINER_COLUMNS)}). Implies --combiner.")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--wandb-project", "--wandb_project", dest="wandb_project", default="protea-reranker")
     p.add_argument("--wandb-mode", "--wandb_mode", dest="wandb_mode", default="online",
@@ -87,6 +107,22 @@ def _build_spec(args: argparse.Namespace) -> ExperimentSpec:
         "ia_path": args.ia_path,
         "ia_scale": args.ia_scale,
     }
+
+    # MR-2 combiner mode: restrict the booster to the explicit score vector.
+    # --combiner-columns implies --combiner. The combiner is shallow by
+    # construction (a handful of inputs); cap num_leaves to a small value
+    # UNLESS the operator explicitly tuned it, so the default combiner does not
+    # overfit a 2-7 column input with the monolith's 63 leaves.
+    combiner_on = args.combiner or args.combiner_columns is not None
+    if combiner_on:
+        explicit_cols = (
+            [c.strip() for c in args.combiner_columns.split(",") if c.strip()]
+            if args.combiner_columns else None
+        )
+        defaults["feature_override"] = resolve_combiner_columns(args.cell, explicit_cols)
+        if args.num_leaves == _MONOLITH_NUM_LEAVES_DEFAULT:
+            defaults["num_leaves"] = _COMBINER_NUM_LEAVES_DEFAULT
+
     return ExperimentSpec(
         name=args.run_name or f"{args.cell}_{args.objective}",
         dataset=DatasetRef(manifest=Path(args.dataset) / "manifest.json"),

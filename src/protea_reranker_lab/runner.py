@@ -194,8 +194,19 @@ def _prepare_stage(
     report["features"] = _features_info(spec, cfg)
     _dump_report(out_dir, report)
 
-    numeric_cols = [c for c in cfg.selected_features() if c in set(NUMERIC_FEATURES)]
-    categorical_cols = [c for c in cfg.selected_features() if c in set(CATEGORICAL_FEATURES)]
+    selected = cfg.selected_features()
+    if cfg.feature_override is not None:
+        # Combiner mode: the score-vector columns are explicit raw parquet
+        # columns that may not appear in the contracts NUMERIC/CATEGORICAL
+        # schema. Treat any override column NOT in CATEGORICAL_FEATURES as
+        # numeric (the score signals are all continuous) so they are not
+        # silently dropped by the contracts intersection used in monolith mode.
+        cat_set = set(CATEGORICAL_FEATURES)
+        categorical_cols = [c for c in selected if c in cat_set]
+        numeric_cols = [c for c in selected if c not in cat_set]
+    else:
+        numeric_cols = [c for c in selected if c in set(NUMERIC_FEATURES)]
+        categorical_cols = [c for c in selected if c in set(CATEGORICAL_FEATURES)]
     feature_cols = numeric_cols + categorical_cols
 
     parent_map_path = None
@@ -494,7 +505,7 @@ def _features_info(spec: ExperimentSpec, cfg: TrainConfig) -> dict[str, Any]:
         spec_drop = []
     drop = sorted(set(spec_drop) | set(cfg.drop_features))
     selected = cfg.selected_features()
-    return {
+    info: dict[str, Any] = {
         "families_enabled": families,
         "families_available": sorted(FEATURE_FAMILIES),
         "drop_features": drop,
@@ -503,6 +514,16 @@ def _features_info(spec: ExperimentSpec, cfg: TrainConfig) -> dict[str, Any]:
         "selected_numeric_count": len([c for c in selected if c in set(NUMERIC_FEATURES)]),
         "selected_categorical_count": len([c for c in selected if c in set(CATEGORICAL_FEATURES)]),
     }
+    if cfg.feature_override is not None:
+        # MR-2 combiner provenance: record that this is a shallow combiner over
+        # the named score vector, NOT the 73-feature monolith. The booster's
+        # feature_name() already bakes in this column set; recording it here lets
+        # PROTEA's import-by-reference + the UI surface the combiner contract.
+        info["mode"] = "combiner"
+        info["combiner_score_columns"] = list(cfg.feature_override)
+    else:
+        info["mode"] = "monolith"
+    return info
 
 
 def _split_info(spec: ExperimentSpec, stage: StageResult) -> dict[str, Any]:
