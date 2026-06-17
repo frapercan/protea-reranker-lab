@@ -35,6 +35,7 @@ from protea_reranker_lab.combiner import (
 )
 from protea_reranker_lab.reranker import TrainConfig
 from protea_reranker_lab.train import (
+    _COMBINER_NEG_POS_RATIO_DEFAULT,
     _COMBINER_NUM_LEAVES_DEFAULT,
     _MONOLITH_NUM_LEAVES_DEFAULT,
     _build_spec,
@@ -47,9 +48,29 @@ from protea_reranker_lab.train import (
 # ---------------------------------------------------------------------------
 
 
-def test_default_columns_are_the_four_scorers_in_order() -> None:
-    """DEFAULT_COMBINER_COLUMNS == knn, classifier, self_prior, association order."""
+#: The five base-evidence columns (sequence / taxonomy / label-embedding /
+#: interpro / term-frequency) that apply to every category and lead the vector.
+_BASE_EVIDENCE_COLUMNS = [
+    "alignment_score_sw",
+    "taxonomic_distance",
+    "anc2vec_neighbor_maxcos",
+    "interpro_score",
+    "go_term_frequency",
+]
+#: The knn + classifier columns: also all-category, after the base evidence.
+_KNN_CLF_COLUMNS = ["distance", "neighbor_vote_fraction", "classifier_score"]
+#: The two prior columns dropped for NK.
+_PRIOR_COLUMNS = ["self_prior_score", "association_total", "association_cross"]
+
+
+def test_default_columns_are_base_evidence_then_knn_clf_then_priors() -> None:
+    """DEFAULT_COMBINER_COLUMNS = base evidence, then knn/classifier, then priors."""
     assert DEFAULT_COMBINER_COLUMNS == [
+        "alignment_score_sw",
+        "taxonomic_distance",
+        "anc2vec_neighbor_maxcos",
+        "interpro_score",
+        "go_term_frequency",
         "distance",
         "neighbor_vote_fraction",
         "classifier_score",
@@ -60,8 +81,17 @@ def test_default_columns_are_the_four_scorers_in_order() -> None:
 
 
 def test_scorer_map_keys_match_protea_registry_order() -> None:
-    """The scorer names + order mirror PROTEA default_scorer_registry()."""
+    """The scorer names + order mirror PROTEA default_scorer_registry().
+
+    Base-evidence scorers lead (canonical order = base evidence first), then
+    knn_similarity / classifier, then the two priors.
+    """
     assert list(SCORE_VECTOR_BY_SCORER) == [
+        "alignment",
+        "taxonomy",
+        "label_embedding",
+        "interpro",
+        "term_frequency",
         "knn_similarity",
         "classifier",
         "self_prior",
@@ -69,14 +99,18 @@ def test_scorer_map_keys_match_protea_registry_order() -> None:
     ]
 
 
-def test_nk_drops_the_two_priors() -> None:
-    """NK has no pre-cutoff known terms, so self_prior + association are absent."""
+def test_nk_keeps_base_evidence_and_drops_only_the_two_priors() -> None:
+    """NK has no pre-cutoff known terms, so only self_prior + association drop.
+
+    The five base-evidence columns are NOT priors, so they survive on NK and
+    restore the sequence / taxonomy / label-embedding signal a priors-only
+    vector lost.
+    """
     cols = combiner_columns_for_category("NK")
-    assert "self_prior_score" not in cols
-    assert "association_total" not in cols
-    assert "association_cross" not in cols
-    # KNN + classifier evidence always applies.
-    assert cols == ["distance", "neighbor_vote_fraction", "classifier_score"]
+    for prior_col in _PRIOR_COLUMNS:
+        assert prior_col not in cols
+    # Base evidence + knn + classifier all apply to NK.
+    assert cols == _BASE_EVIDENCE_COLUMNS + _KNN_CLF_COLUMNS
 
 
 @pytest.mark.parametrize("cat", ["lk", "pk", "LK", "PK"])
@@ -168,6 +202,38 @@ def test_cli_monolith_unchanged_no_override_default_leaves() -> None:
     assert spec.model.defaults["num_leaves"] == _MONOLITH_NUM_LEAVES_DEFAULT
 
 
+def test_cli_combiner_defaults_neg_pos_ratio_to_fifty() -> None:
+    """Combiner mode downsamples negatives to 50x positives when left unset."""
+    spec = _spec_for(["--dataset", "ds", "--cell", "pk-bpo", "--combiner"])
+    assert spec.model.defaults["neg_pos_ratio"] == _COMBINER_NEG_POS_RATIO_DEFAULT
+    assert spec.training.neg_pos_ratio == _COMBINER_NEG_POS_RATIO_DEFAULT
+
+
+def test_cli_combiner_respects_explicit_neg_pos_ratio() -> None:
+    """An explicit --neg-pos-ratio wins over the combiner default."""
+    spec = _spec_for([
+        "--dataset", "ds", "--cell", "pk-bpo", "--combiner", "--neg-pos-ratio", "10",
+    ])
+    assert spec.model.defaults["neg_pos_ratio"] == 10.0
+    assert spec.training.neg_pos_ratio == 10.0
+
+
+def test_cli_combiner_explicit_none_neg_pos_ratio_disables_downsampling() -> None:
+    """An explicit --neg-pos-ratio none keeps all negatives even in combiner mode."""
+    spec = _spec_for([
+        "--dataset", "ds", "--cell", "pk-bpo", "--combiner", "--neg-pos-ratio", "none",
+    ])
+    assert spec.model.defaults["neg_pos_ratio"] is None
+    assert spec.training.neg_pos_ratio is None
+
+
+def test_cli_monolith_keeps_none_neg_pos_ratio_default() -> None:
+    """The monolith path keeps its None default (no downsampling)."""
+    spec = _spec_for(["--dataset", "ds", "--cell", "lk-bpo"])
+    assert spec.model.defaults["neg_pos_ratio"] is None
+    assert spec.training.neg_pos_ratio is None
+
+
 # ---------------------------------------------------------------------------
 # End to end on a synthetic parquet (small; real LightGBM, no DB/MinIO)
 # ---------------------------------------------------------------------------
@@ -199,6 +265,11 @@ def _write_synthetic(path: Path, *, category: str, n_proteins: int, seed: int) -
             cols["category"].append(category)
             cols["aspect"].append("bpo")
             cols["snapshot_pair"].append("v226-v230")
+            cols["alignment_score_sw"].append(float(rng.random()))
+            cols["taxonomic_distance"].append(float(rng.random()))
+            cols["anc2vec_neighbor_maxcos"].append(float(rng.random()))
+            cols["interpro_score"].append(float(rng.random()))
+            cols["go_term_frequency"].append(float(rng.random()))
             cols["distance"].append(float(rng.random()))
             cols["neighbor_vote_fraction"].append(float(rng.random()))
             cols["classifier_score"].append(clf)
