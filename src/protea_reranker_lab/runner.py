@@ -174,6 +174,26 @@ def run_experiment(
     return report
 
 
+def _resolve_feature_columns(cfg: TrainConfig) -> tuple[list[str], list[str]]:
+    """Return (numeric_cols, categorical_cols) for staging.
+
+    Combiner mode (``feature_override`` set): the score-vector columns are
+    explicit raw parquet columns that may be absent from the contracts
+    NUMERIC/CATEGORICAL schema, so any override column not in
+    CATEGORICAL_FEATURES is treated as numeric (the score signals are
+    continuous) rather than silently dropped. Monolith mode intersects with
+    the contracts NUMERIC/CATEGORICAL families.
+    """
+    selected = cfg.selected_features()
+    cat_set = set(CATEGORICAL_FEATURES)
+    if cfg.feature_override is not None:
+        return [c for c in selected if c not in cat_set], [c for c in selected if c in cat_set]
+    return (
+        [c for c in selected if c in set(NUMERIC_FEATURES)],
+        [c for c in selected if c in cat_set],
+    )
+
+
 def _prepare_stage(
     spec: ExperimentSpec,
     manifest_path: Path,
@@ -194,19 +214,7 @@ def _prepare_stage(
     report["features"] = _features_info(spec, cfg)
     _dump_report(out_dir, report)
 
-    selected = cfg.selected_features()
-    if cfg.feature_override is not None:
-        # Combiner mode: the score-vector columns are explicit raw parquet
-        # columns that may not appear in the contracts NUMERIC/CATEGORICAL
-        # schema. Treat any override column NOT in CATEGORICAL_FEATURES as
-        # numeric (the score signals are all continuous) so they are not
-        # silently dropped by the contracts intersection used in monolith mode.
-        cat_set = set(CATEGORICAL_FEATURES)
-        categorical_cols = [c for c in selected if c in cat_set]
-        numeric_cols = [c for c in selected if c not in cat_set]
-    else:
-        numeric_cols = [c for c in selected if c in set(NUMERIC_FEATURES)]
-        categorical_cols = [c for c in selected if c in set(CATEGORICAL_FEATURES)]
+    numeric_cols, categorical_cols = _resolve_feature_columns(cfg)
     feature_cols = numeric_cols + categorical_cols
 
     parent_map_path = None
