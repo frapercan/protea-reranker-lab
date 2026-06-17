@@ -21,6 +21,16 @@ from .runner import run_experiment
 #: to detect whether the operator explicitly tuned the leaf count so combiner
 #: mode only shrinks it when left at the default.
 _MONOLITH_NUM_LEAVES_DEFAULT = 63
+#: Combiner-mode default negative downsampling ratio. The combiner calibrates a
+#: handful of scores per category; downsampling negatives to 50x positives fixes
+#: PK calibration and keeps training tractable. Only applied when the operator
+#: did not pass ``--neg-pos-ratio`` explicitly; the monolith default stays None.
+_COMBINER_NEG_POS_RATIO_DEFAULT = 50.0
+#: Sentinel for ``--neg-pos-ratio`` left unset on the CLI. Distinct from an
+#: explicit ``--neg-pos-ratio none`` (which parses to ``None``) so combiner mode
+#: can apply its downsampling default without overriding an explicit operator
+#: value. A non-string object so argparse does not run ``type`` over the default.
+_NEG_POS_RATIO_UNSET = object()
 #: Shallow leaf count for the combiner (a handful of score-vector inputs do not
 #: need 63 leaves; a small tree keeps the meta-learner low-variance / calibrated).
 _COMBINER_NUM_LEAVES_DEFAULT = 15
@@ -43,7 +53,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--bagging-fraction", "--bagging_fraction",
                    dest="bagging_fraction", type=float, default=0.9)
     p.add_argument("--neg-pos-ratio", "--neg_pos_ratio",
-                   dest="neg_pos_ratio", type=_nullable_float, default=None)
+                   dest="neg_pos_ratio", type=_nullable_float, default=_NEG_POS_RATIO_UNSET)
     p.add_argument("--val-fraction", "--val_fraction", dest="val_fraction", type=float, default=0.2)
     p.add_argument("--val-strategy", "--val_strategy", dest="val_strategy", default="protein_group",
                    choices=["protein_group", "temporal", "none"])
@@ -86,10 +96,31 @@ def _nullable_float(v: str) -> float | None:
     return float(v)
 
 
+def _resolve_neg_pos_ratio(args: argparse.Namespace, *, combiner_on: bool) -> float | None:
+    """Resolve the effective negative downsampling ratio + log it.
+
+    An explicit ``--neg-pos-ratio`` (including ``none``) always wins. When left
+    unset, combiner mode defaults to ``_COMBINER_NEG_POS_RATIO_DEFAULT`` (50x) to
+    fix PK calibration + bound training time; the monolith keeps its ``None``.
+    """
+    if args.neg_pos_ratio is not _NEG_POS_RATIO_UNSET:
+        ratio = args.neg_pos_ratio
+        print(f"[combiner] neg_pos_ratio={ratio} (explicit)")
+        return ratio
+    if combiner_on:
+        ratio = _COMBINER_NEG_POS_RATIO_DEFAULT
+        print(f"[combiner] neg_pos_ratio={ratio} (combiner default)")
+        return ratio
+    return None
+
+
 def _build_spec(args: argparse.Namespace) -> ExperimentSpec:
     drop_features: list[str] = []
     for fam in args.drop_feature_family or []:
         drop_features.extend(FEATURE_FAMILIES.get(fam, []))
+
+    combiner_on = args.combiner or args.combiner_columns is not None
+    neg_pos_ratio = _resolve_neg_pos_ratio(args, combiner_on=combiner_on)
 
     defaults = {
         "objective": args.objective,
@@ -100,7 +131,7 @@ def _build_spec(args: argparse.Namespace) -> ExperimentSpec:
         "min_data_in_leaf": args.min_data_in_leaf,
         "feature_fraction": args.feature_fraction,
         "bagging_fraction": args.bagging_fraction,
-        "neg_pos_ratio": args.neg_pos_ratio,
+        "neg_pos_ratio": neg_pos_ratio,
         "val_fraction": args.val_fraction,
         "drop_features": drop_features,
         "ia_weighting": args.ia_weighting,
@@ -112,8 +143,7 @@ def _build_spec(args: argparse.Namespace) -> ExperimentSpec:
     # --combiner-columns implies --combiner. The combiner is shallow by
     # construction (a handful of inputs); cap num_leaves to a small value
     # UNLESS the operator explicitly tuned it, so the default combiner does not
-    # overfit a 2-7 column input with the monolith's 63 leaves.
-    combiner_on = args.combiner or args.combiner_columns is not None
+    # overfit a small score-vector input with the monolith's 63 leaves.
     if combiner_on:
         explicit_cols = (
             [c.strip() for c in args.combiner_columns.split(",") if c.strip()]
@@ -132,7 +162,7 @@ def _build_spec(args: argparse.Namespace) -> ExperimentSpec:
             val_strategy=args.val_strategy,
             val_fraction=args.val_fraction,
             val_holdout_snapshot=args.temporal_holdout,
-            neg_pos_ratio=args.neg_pos_ratio,
+            neg_pos_ratio=neg_pos_ratio,
             seed=args.seed,
         ),
         sweep=SweepRef(backend="none"),
