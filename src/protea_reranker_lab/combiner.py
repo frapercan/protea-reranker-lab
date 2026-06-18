@@ -24,19 +24,25 @@ scorer (port)   stored column(s)                              applies to
 alignment       ``alignment_score_sw``                        NK / LK / PK
 taxonomy        ``taxonomic_distance``                        NK / LK / PK
 label_embedding ``anc2vec_neighbor_maxcos``                   NK / LK / PK
-interpro        ``interpro_score``                            NK / LK / PK
-term_frequency  ``go_term_frequency``                         NK / LK / PK
 knn_similarity  ``distance`` + ``neighbor_vote_fraction``     NK / LK / PK
 classifier      ``classifier_score``                          NK / LK / PK
 self_prior      ``self_prior_score``                          LK / PK only
 association     ``association_total`` + ``association_cross``  LK / PK only
 =============== ============================================ ===================
 
-The first five rows are the BASE sequence / taxonomy / label-embedding evidence
+The first three rows are the BASE sequence / taxonomy / label-embedding evidence
 (MR-2): they are NOT priors, so they apply to every category and are what gives
 the NK cells real signal beyond knn + classifier. Only the last two scorers are
 priors keyed on the query's own pre-cutoff known terms, so only they are dropped
 for NK.
+
+``go_term_frequency`` (term_frequency) and ``interpro_score`` (interpro) were
+dropped from the vector (MR-2.5): on the 7401 LAFA frame the base-enriched
+11-column vector scored MEAN 0.259 vs MEAN 0.310 for this evidence-only vector,
+because the IA-weighted f_micro_w rewards RARE informative terms while
+``go_term_frequency`` biases toward FREQUENT low-IA terms, and ``interpro_score``
+is an export-only column (0 percent importance everywhere and not computable at
+PROTEA predict time).
 
 For NK the two priors are absent / zero (the query has no pre-cutoff known
 terms), so :func:`combiner_columns_for_category` drops them for ``nk`` cells. The
@@ -60,16 +66,15 @@ _KNOWN_CATEGORIES: frozenset[str] = frozenset({"lk", "pk"})
 #: parquet columns that feed it. The combiner's input vector is the concatenation
 #: of these in registration order (base evidence first, then knn_similarity,
 #: classifier, self_prior, association) so the column order is stable + auditable.
-#: The five base-evidence scorers (alignment, taxonomy, label_embedding,
-#: interpro, term_frequency) are NOT priors: they apply to every category and
-#: restore the sequence / taxonomy / label-embedding signal the NK cells lost to
-#: the priors-only vector.
+#: The three base-evidence scorers (alignment, taxonomy, label_embedding) are NOT
+#: priors: they apply to every category and restore the sequence / taxonomy /
+#: label-embedding signal the NK cells lost to the priors-only vector. The
+#: IA-harmful ``term_frequency`` + export-only ``interpro`` scorers were dropped
+#: (MR-2.5); see the module docstring.
 SCORE_VECTOR_BY_SCORER: dict[str, list[str]] = {
     "alignment": ["alignment_score_sw"],
     "taxonomy": ["taxonomic_distance"],
     "label_embedding": ["anc2vec_neighbor_maxcos"],
-    "interpro": ["interpro_score"],
-    "term_frequency": ["go_term_frequency"],
     "knn_similarity": ["distance", "neighbor_vote_fraction"],
     "classifier": ["classifier_score"],
     "self_prior": ["self_prior_score"],

@@ -34,13 +34,27 @@ _NEG_POS_RATIO_UNSET = object()
 #: Shallow leaf count for the combiner (a handful of score-vector inputs do not
 #: need 63 leaves; a small tree keeps the meta-learner low-variance / calibrated).
 _COMBINER_NUM_LEAVES_DEFAULT = 15
+#: Combiner-mode default objective. ``lambdarank`` emits relative RANKING scores,
+#: but f_micro_w applies a GLOBAL threshold sweep, which wants CALIBRATED [0,1]
+#: probabilities; ``binary`` gives those. Only applied when the operator did not
+#: pass ``--objective`` explicitly; the monolith keeps its ``lambdarank`` default.
+_COMBINER_OBJECTIVE_DEFAULT = "binary"
+#: Monolith default objective (mirrors the parser default below).
+_MONOLITH_OBJECTIVE_DEFAULT = "lambdarank"
+#: Sentinel for ``--objective`` left unset on the CLI, so combiner mode can apply
+#: its calibrated-probability default without overriding an explicit operator
+#: value. A non-string object so argparse does not run ``choices`` over it.
+_OBJECTIVE_UNSET = object()
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser()
     p.add_argument("--dataset", required=True, help="dataset directory (containing manifest.json)")
     p.add_argument("--cell", required=True, help="e.g. pk-bpo / nk-mfo / lk-cco")
-    p.add_argument("--objective", default="lambdarank", choices=["binary", "lambdarank"])
+    p.add_argument("--objective", default=_OBJECTIVE_UNSET, choices=["binary", "lambdarank"],
+                   help="LightGBM objective. Defaults to lambdarank for the "
+                        "monolith and binary (calibrated probabilities for the "
+                        "f_micro_w threshold sweep) for --combiner.")
     p.add_argument("--num-boost-round", "--num_boost_round", dest="num_boost_round", type=int, default=5000)
     p.add_argument("--early-stopping-rounds", "--early_stopping_rounds",
                    dest="early_stopping_rounds", type=int, default=50)
@@ -114,6 +128,23 @@ def _resolve_neg_pos_ratio(args: argparse.Namespace, *, combiner_on: bool) -> fl
     return None
 
 
+def _resolve_objective(args: argparse.Namespace, *, combiner_on: bool) -> str:
+    """Resolve the effective LightGBM objective + log it.
+
+    An explicit ``--objective`` always wins. When left unset, combiner mode
+    defaults to ``binary`` (calibrated probabilities for the f_micro_w global
+    threshold sweep); the monolith keeps its ``lambdarank`` ranking default.
+    """
+    if args.objective is not _OBJECTIVE_UNSET:
+        objective = args.objective
+        print(f"[combiner] objective={objective} (explicit)")
+        return objective
+    if combiner_on:
+        print(f"[combiner] objective={_COMBINER_OBJECTIVE_DEFAULT} (combiner default)")
+        return _COMBINER_OBJECTIVE_DEFAULT
+    return _MONOLITH_OBJECTIVE_DEFAULT
+
+
 def _build_spec(args: argparse.Namespace) -> ExperimentSpec:
     drop_features: list[str] = []
     for fam in args.drop_feature_family or []:
@@ -121,9 +152,10 @@ def _build_spec(args: argparse.Namespace) -> ExperimentSpec:
 
     combiner_on = args.combiner or args.combiner_columns is not None
     neg_pos_ratio = _resolve_neg_pos_ratio(args, combiner_on=combiner_on)
+    objective = _resolve_objective(args, combiner_on=combiner_on)
 
     defaults = {
-        "objective": args.objective,
+        "objective": objective,
         "num_boost_round": args.num_boost_round,
         "early_stopping_rounds": args.early_stopping_rounds,
         "learning_rate": args.learning_rate,
@@ -154,7 +186,7 @@ def _build_spec(args: argparse.Namespace) -> ExperimentSpec:
             defaults["num_leaves"] = _COMBINER_NUM_LEAVES_DEFAULT
 
     return ExperimentSpec(
-        name=args.run_name or f"{args.cell}_{args.objective}",
+        name=args.run_name or f"{args.cell}_{objective}",
         dataset=DatasetRef(manifest=Path(args.dataset) / "manifest.json"),
         model=ModelSpec(defaults=defaults),
         training=TrainingSpec(
