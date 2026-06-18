@@ -48,14 +48,13 @@ from protea_reranker_lab.train import (
 # ---------------------------------------------------------------------------
 
 
-#: The five base-evidence columns (sequence / taxonomy / label-embedding /
-#: interpro / term-frequency) that apply to every category and lead the vector.
+#: The three base-evidence columns (sequence / taxonomy / label-embedding) that
+#: apply to every category and lead the vector. The IA-harmful go_term_frequency
+#: and export-only interpro_score columns were dropped (MR-2.5).
 _BASE_EVIDENCE_COLUMNS = [
     "alignment_score_sw",
     "taxonomic_distance",
     "anc2vec_neighbor_maxcos",
-    "interpro_score",
-    "go_term_frequency",
 ]
 #: The knn + classifier columns: also all-category, after the base evidence.
 _KNN_CLF_COLUMNS = ["distance", "neighbor_vote_fraction", "classifier_score"]
@@ -69,8 +68,6 @@ def test_default_columns_are_base_evidence_then_knn_clf_then_priors() -> None:
         "alignment_score_sw",
         "taxonomic_distance",
         "anc2vec_neighbor_maxcos",
-        "interpro_score",
-        "go_term_frequency",
         "distance",
         "neighbor_vote_fraction",
         "classifier_score",
@@ -78,6 +75,22 @@ def test_default_columns_are_base_evidence_then_knn_clf_then_priors() -> None:
         "association_total",
         "association_cross",
     ]
+
+
+def test_ia_harmful_columns_are_not_in_the_score_vector() -> None:
+    """go_term_frequency + interpro_score were dropped (MR-2.5).
+
+    go_term_frequency biases toward FREQUENT low-IA terms (the IA-weighted
+    f_micro_w rewards RARE informative terms); interpro_score is export-only
+    (0 percent importance, not computable at PROTEA predict time). Neither may
+    re-enter the default vector for any category.
+    """
+    for harmful in ("go_term_frequency", "interpro_score"):
+        assert harmful not in DEFAULT_COMBINER_COLUMNS
+        for cat in ("nk", "lk", "pk"):
+            assert harmful not in combiner_columns_for_category(cat)
+    for scorer in ("term_frequency", "interpro"):
+        assert scorer not in SCORE_VECTOR_BY_SCORER
 
 
 def test_scorer_map_keys_match_protea_registry_order() -> None:
@@ -90,8 +103,6 @@ def test_scorer_map_keys_match_protea_registry_order() -> None:
         "alignment",
         "taxonomy",
         "label_embedding",
-        "interpro",
-        "term_frequency",
         "knn_similarity",
         "classifier",
         "self_prior",
@@ -102,7 +113,7 @@ def test_scorer_map_keys_match_protea_registry_order() -> None:
 def test_nk_keeps_base_evidence_and_drops_only_the_two_priors() -> None:
     """NK has no pre-cutoff known terms, so only self_prior + association drop.
 
-    The five base-evidence columns are NOT priors, so they survive on NK and
+    The three base-evidence columns are NOT priors, so they survive on NK and
     restore the sequence / taxonomy / label-embedding signal a priors-only
     vector lost.
     """
@@ -202,6 +213,31 @@ def test_cli_monolith_unchanged_no_override_default_leaves() -> None:
     assert spec.model.defaults["num_leaves"] == _MONOLITH_NUM_LEAVES_DEFAULT
 
 
+def test_cli_combiner_defaults_objective_to_binary() -> None:
+    """Combiner mode emits calibrated [0,1] probabilities for the threshold sweep.
+
+    f_micro_w applies a GLOBAL threshold sweep, which wants calibrated
+    probabilities, not the relative ranking scores lambdarank produces.
+    """
+    spec = _spec_for(["--dataset", "ds", "--cell", "pk-bpo", "--combiner"])
+    assert spec.model.defaults["objective"] == "binary"
+
+
+def test_cli_combiner_respects_explicit_objective() -> None:
+    """An explicit --objective wins over the combiner binary default."""
+    spec = _spec_for([
+        "--dataset", "ds", "--cell", "pk-bpo", "--combiner",
+        "--objective", "lambdarank",
+    ])
+    assert spec.model.defaults["objective"] == "lambdarank"
+
+
+def test_cli_monolith_keeps_lambdarank_objective_default() -> None:
+    """Without --combiner the monolith keeps its lambdarank ranking objective."""
+    spec = _spec_for(["--dataset", "ds", "--cell", "lk-bpo"])
+    assert spec.model.defaults["objective"] == "lambdarank"
+
+
 def test_cli_combiner_defaults_neg_pos_ratio_to_fifty() -> None:
     """Combiner mode downsamples negatives to 50x positives when left unset."""
     spec = _spec_for(["--dataset", "ds", "--cell", "pk-bpo", "--combiner"])
@@ -268,8 +304,6 @@ def _write_synthetic(path: Path, *, category: str, n_proteins: int, seed: int) -
             cols["alignment_score_sw"].append(float(rng.random()))
             cols["taxonomic_distance"].append(float(rng.random()))
             cols["anc2vec_neighbor_maxcos"].append(float(rng.random()))
-            cols["interpro_score"].append(float(rng.random()))
-            cols["go_term_frequency"].append(float(rng.random()))
             cols["distance"].append(float(rng.random()))
             cols["neighbor_vote_fraction"].append(float(rng.random()))
             cols["classifier_score"].append(clf)
