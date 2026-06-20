@@ -27,6 +27,13 @@ dev = [
     "pytest>=8",
     "mypy>=1.0",
 ]
+# Extras for scripts/train_native_boosters.py: the direct-MinIO-SDK dataset
+# fallback (--minio-fallback) and the gated MLflow tracking. Kept optional so
+# the core lab install stays light (lightgbm + pyarrow already cover training).
+native = [
+    "minio>=7.2",
+    "mlflow-skinny>=2.10",
+]
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
