@@ -102,6 +102,12 @@ pages are deep dives. The :doc:`reference/index` documents every module.
 
 .. toctree::
    :maxdepth: 1
+   :caption: Runbooks
+
+   runbooks/mlflow
+
+.. toctree::
+   :maxdepth: 1
    :caption: Reference
 
    reference/index
