@@ -17,6 +17,8 @@ experiments/_generated/
 experiments/leakage_fix/
 runs/
 outputs/
+sdr_a_out/
+sdr_a_out_*/
 wandb/
 .wandb/
 *.log

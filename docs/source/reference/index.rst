@@ -69,3 +69,11 @@ Evaluation and analysis
    hierarchical_correction
    negative_sampling_audit
    band_registry_bridge
+
+Dense vs sparse (T-CIENCIA)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. toctree::
+   :maxdepth: 1
+
+   sdr
