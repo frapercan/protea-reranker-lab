@@ -106,6 +106,7 @@ pages are deep dives. The :doc:`reference/index` documents every module.
 
    runbooks/mlflow
    runbooks/gpu-torch
+   runbooks/condprobmod
 
 .. toctree::
    :maxdepth: 1
