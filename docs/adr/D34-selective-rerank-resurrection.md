@@ -102,8 +102,8 @@ eval window v226-v230, prostt5 embeddings).
 
 ## References
 
-- LB.2 multi-seed sweep: `EXPERIMENTS.md` section "LB.2 multi-seed sweep"
-- LR.4 closure: `EXPERIMENTS.md` section "LR.4 closure"
+- LB.2 multi-seed sweep: `docs/source/experiment_log.md` section "LB.2 multi-seed sweep"
+- LR.4 closure: `docs/source/experiment_log.md` section "LR.4 closure"
 - LB.3 paired CI: `experiments/lb3/per_cell_paired_ci.csv`
 - LM.3 feature importance: `experiments/lm3/feature_importance_per_aspect.csv`
 - FARM-EXP.10 run records: `runs/transversal/farm_exp_10/`

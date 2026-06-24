@@ -114,6 +114,13 @@ pages are deep dives. The :doc:`reference/index` documents every module.
    reference/index
    contributing
 
+.. toctree::
+   :maxdepth: 1
+   :caption: History and provenance
+
+   spec_catalog
+   experiment_log
+
 Indices and tables
 ==================
 
