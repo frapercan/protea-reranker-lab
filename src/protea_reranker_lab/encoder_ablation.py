@@ -184,11 +184,9 @@ def _pca(R: np.ndarray, Q: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
     return p.transform(R).astype(np.float32), p.transform(Q).astype(np.float32)
 
 
-def _train_encoder(
-    R: np.ndarray, Q: np.ndarray, closures: list[frozenset[str]], dag: GoDag, arm: ArmSpec,
-    spec: EncoderAblationSpec,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Learn a GO-aligned Linear(d->dict) projection; return top-k real codes for ref + query."""
+def fit_encoder(R: np.ndarray, closures: list[frozenset[str]], dag: GoDag, arm: ArmSpec,
+                spec: EncoderAblationSpec) -> nn.Linear:
+    """Train the GO-aligned Linear(d->dict) projection on the reference pool; return the model."""
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     rng = np.random.default_rng(spec.seed)
     d = R.shape[1]
@@ -228,11 +226,24 @@ def _train_encoder(
         opt.step()
         if e % 30 == 0:
             log.info("  [%s] enc epoch %3d loss=%.4f", arm.name, e, float(loss))
+    return enc
+
+
+def apply_encoder(enc: nn.Linear, X: np.ndarray, top_k: int) -> np.ndarray:
+    """Project L2-normalised embeddings through the encoder and keep the top-k real code."""
+    dev = next(enc.parameters()).device
     with torch.no_grad():
-        Rc = topk_real(enc(Rt).cpu().numpy().astype(np.float32), arm.top_k)
-        Qc = topk_real(enc(torch.tensor(l2n(Q), device=dev)).cpu().numpy().astype(np.float32),
-                       arm.top_k)
-    return Rc, Qc
+        Z = enc(torch.tensor(l2n(X), device=dev)).cpu().numpy().astype(np.float32)
+    return topk_real(Z, top_k)
+
+
+def _train_encoder(
+    R: np.ndarray, Q: np.ndarray, closures: list[frozenset[str]], dag: GoDag, arm: ArmSpec,
+    spec: EncoderAblationSpec,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Train + apply: return top-k real codes for ref + query (the ablation's learned arm)."""
+    enc = fit_encoder(R, closures, dag, arm, spec)
+    return apply_encoder(enc, R, arm.top_k), apply_encoder(enc, Q, arm.top_k)
 
 
 def _build_arm(arm: ArmSpec, R: np.ndarray, Q: np.ndarray, closures: list[frozenset[str]], dag: GoDag,
@@ -431,6 +442,35 @@ def _eval_arm_cells(work: Path, cells: dict, obo_path: Path, ia_path: Path,
             cell_fw[cell] = float(fw)
         log.info("  %-7s f_micro_w=%s", cell, f"{fw:.4f}" if isinstance(fw, (int, float)) else "NA")
     return cell_fw
+
+
+def train_and_save_encoder(spec: EncoderAblationSpec, arm: ArmSpec, out_path: Path) -> dict:
+    """Train ONE production encoder on the reference pool and persist its weights + meta.
+
+    The artifact (torch ``{state_dict, meta}``) is what a downstream apply step (e.g. a PROTEA
+    operation) loads to project any protein's mean-pooled embedding into the learned code:
+    ``topk_real(enc(l2n(x)), top_k)``. Meta carries everything needed to reconstruct + apply it.
+    """
+    obo_path, _ = resolve_band_artifacts(spec.band)
+    cells = load_gt(spec.gt_dir)
+    queries = sorted({a for d in cells.values() for a in d["proteins"]})
+    dag = GoDag.from_obo(obo_path)
+    R, _Q, ref_clo, _q = _load_data(spec, dag, queries, np.random.default_rng(spec.seed))
+    log.info("training production encoder (%s) on %d reference proteins (dim=%d)",
+             arm.name, len(ref_clo), R.shape[1])
+    enc = fit_encoder(R, ref_clo, dag, arm, spec)
+    meta = {
+        "in_dim": int(R.shape[1]), "dict_dim": arm.dict_dim, "top_k": arm.top_k,
+        "objective": arm.objective, "source_embedding_config_id": spec.embedding_config_id,
+        "l2_normalize_input": True, "band": spec.band, "reference_n": len(ref_clo),
+        "seed": spec.seed,
+    }
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save({"state_dict": {k: v.cpu() for k, v in enc.state_dict().items()}, "meta": meta},
+               out_path)
+    log.info("saved encoder -> %s | meta=%s", out_path, meta)
+    return meta
 
 
 def run_encoder_ablation(spec: EncoderAblationSpec) -> dict:
