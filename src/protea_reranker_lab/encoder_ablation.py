@@ -35,11 +35,16 @@ import torch.nn as nn
 from protea_reranker_lab.band_registry_bridge import resolve_band_artifacts
 from protea_reranker_lab.native_boosters_mlflow import MlflowLogger
 from protea_reranker_lab.sdr import GoDag, information_content, lin_pairwise, propagate
-from protea_reranker_lab.universal_runner import _DEFAULT_PROTEA_PYTHON, _run_cafaeval
+from protea_reranker_lab.universal_runner import (
+    _DEFAULT_PROTEA_PYTHON,
+    _run_cafaeval,
+    ASPECT_TO_NS,
+)
 
 log = logging.getLogger("encoder-ablation")
 
 _ASP_CODE = {"F": "mfo", "P": "bpo", "C": "cco"}  # GT aspect column -> cafaeval cell aspect
+_NS_TO_ASP = {v: k for k, v in _ASP_CODE.items()}  # cell aspect -> GT aspect column (PK-known)
 
 
 # --------------------------------------------------------------------------- spec
@@ -81,6 +86,13 @@ class EncoderAblationSpec:
     train_pairs: int = 300_000
     seed: int = 42
     arms: list[ArmSpec] = field(default_factory=_default_arms)
+    # Official LAFA harness: score with the exact run_cafa_evaluation recipe
+    # (toi_file + PK-known exclusion + th_step=0.01 + max_terms=None) instead of
+    # the plain cafaeval. Makes the f_micro_w directly comparable to the 0.3745
+    # champion's KNN baseline (still an isolated KNN arm, no reranker).
+    official_harness: bool = False
+    toi_path: Path | None = None
+    pk_known_path: Path | None = None
     out_dir: Path | None = None
     protea_python: Path = field(default_factory=lambda: Path(_DEFAULT_PROTEA_PYTHON))
     mlflow_experiment: str = "encoder-ablation"
@@ -287,6 +299,62 @@ def _write_cell_tsvs(scores: sp.csr_matrix, query_ix: dict[str, int], terms: lis
                 g.write(f"{acc}\t{go}\n")
 
 
+# ----------------------------------------------------------------- official LAFA harness
+_CAFAEVAL_DRIVER_OFFICIAL = '''
+import json, signal
+from cafaeval.evaluation import cafa_eval
+signal.signal(signal.SIGTERM, signal.SIG_DFL)
+signal.signal(signal.SIGINT, signal.SIG_DFL)
+df, dfs_best = cafa_eval(
+    "{obo}", "{pred_dir}", "{gt}",
+    ia="{ia}", prop="fill", norm="cafa", no_orphans=True,
+    toi_file="{toi}", exclude={exclude}, max_terms=None, th_step=0.01,
+    n_cpu=1, weighted_only=False,
+)
+out = {{}}
+for kind, df_best in dfs_best.items():
+    out[kind] = df_best.reset_index().to_dict(orient="records")
+with open("{out_json}", "w") as f:
+    json.dump(out, f, indent=2, default=str)
+'''
+
+
+def _load_pk_known(pk_known_path: Path) -> dict[str, set[tuple[str, str]]]:
+    """aspect-code (F/P/C) -> {(protein, term)} of already-known PK annotations to exclude."""
+    out: dict[str, set[tuple[str, str]]] = {}
+    for ln in open(pk_known_path):
+        parts = ln.rstrip("\n").split("\t")
+        if len(parts) < 3 or parts[0] == "EntryID":
+            continue
+        out.setdefault(parts[2], set()).add((parts[0], parts[1]))
+    return out
+
+
+def _run_cafaeval_official(cell: str, work_dir: Path, obo_path: Path, ia_path: Path,
+                           exclude_path: Path | None, spec: EncoderAblationSpec) -> dict:
+    """cafaeval with the exact LAFA recipe (toi_file + PK-known exclude + th_step=0.01)."""
+    import subprocess
+    cell_dir = work_dir / cell
+    out_json = cell_dir / "cafaeval_official.json"
+    excl = "None" if exclude_path is None else repr(str(exclude_path))
+    driver = _CAFAEVAL_DRIVER_OFFICIAL.format(
+        obo=str(obo_path), pred_dir=str(cell_dir), gt=str(cell_dir / "gt.tsv"),
+        ia=str(ia_path), toi=str(spec.toi_path), exclude=excl, out_json=str(out_json))
+    try:
+        subprocess.run([str(spec.protea_python), "-c", driver], timeout=1800, check=True,
+                       capture_output=True, text=True)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        return {"error": str(exc)[:200]}
+    if not out_json.exists():
+        return {"error": "cafaeval produced no output"}
+    raw = json.loads(out_json.read_text())
+    ns = ASPECT_TO_NS.get(cell.split("-", 1)[1])
+    for row in raw.get("f_micro_w", []):
+        if row.get("ns") == ns and row.get("f_micro_w") is not None:
+            return {"f_micro_w": float(row["f_micro_w"])}
+    return {"f_micro_w": None}
+
+
 # --------------------------------------------------------------------------- runner
 def _load_data(spec: EncoderAblationSpec, dag: GoDag, queries: list[str], rng):
     """Pull the t0 reference pool (embeddings + GO closures) and the query embeddings (read-only)."""
@@ -342,6 +410,29 @@ def _log_mlflow(spec: EncoderAblationSpec, out_dir: Path, results: dict, ref_n: 
         logger.log_summary_artifact(out_dir / "run.json")
 
 
+def _eval_arm_cells(work: Path, cells: dict, obo_path: Path, ia_path: Path,
+                    spec: EncoderAblationSpec, pk_known: dict) -> dict[str, float]:
+    """Score every cell, choosing the official LAFA harness (toi + PK-known exclude) or plain."""
+    cell_fw: dict[str, float] = {}
+    for (cat, aspect) in cells:
+        cell = f"{cat}-{aspect}"
+        if spec.official_harness and spec.toi_path is not None:
+            excl = None
+            if cat == "pk" and pk_known:
+                excl = work / cell / "exclude.tsv"
+                with open(excl, "w") as f:
+                    for acc, term in pk_known.get(_NS_TO_ASP[aspect], set()):
+                        f.write(f"{acc}\t{term}\n")
+            m = _run_cafaeval_official(cell, work, obo_path, ia_path, excl, spec)
+        else:
+            m = _run_cafaeval(cell, work, obo_path, ia_path, spec.protea_python)
+        fw = m.get("f_micro_w") if isinstance(m, dict) else None
+        if isinstance(fw, (int, float)):
+            cell_fw[cell] = float(fw)
+        log.info("  %-7s f_micro_w=%s", cell, f"{fw:.4f}" if isinstance(fw, (int, float)) else "NA")
+    return cell_fw
+
+
 def run_encoder_ablation(spec: EncoderAblationSpec) -> dict:
     """Run the ablation: pull data, build each arm, KNN-transfer, cafaeval, collect deltas."""
     out_dir = Path(spec.out_dir or (Path("runs") / "encoder_ablation" / spec.spec_hash()))
@@ -359,6 +450,11 @@ def run_encoder_ablation(spec: EncoderAblationSpec) -> dict:
     tix = {t: i for i, t in enumerate(terms)}
     query_ix = {a: i for i, a in enumerate(q_accs)}
 
+    pk_known = (_load_pk_known(spec.pk_known_path)
+                if (spec.official_harness and spec.pk_known_path) else {})
+    if spec.official_harness:
+        log.info("OFFICIAL LAFA harness: toi=%s + PK-known exclusion", str(spec.toi_path))
+
     results: dict[str, dict] = {}
     for arm in spec.arms:
         log.info("=== arm=%s (%s) ===", arm.name, arm.kind)
@@ -366,15 +462,7 @@ def run_encoder_ablation(spec: EncoderAblationSpec) -> dict:
         scores = knn_transfer(Qx, Rx, ref_clo, tix, spec.knn)
         work = out_dir / "cafaeval" / arm.name
         _write_cell_tsvs(scores, query_ix, terms, cells, work)
-        cell_fw: dict[str, float] = {}
-        for (cat, aspect) in cells:
-            cell = f"{cat}-{aspect}"
-            m = _run_cafaeval(cell, work, obo_path, ia_path, spec.protea_python)
-            fw = m.get("f_micro_w") if isinstance(m, dict) else None
-            if isinstance(fw, (int, float)):
-                cell_fw[cell] = float(fw)
-            log.info("  %-22s %-7s f_micro_w=%s", arm.name, cell,
-                     f"{fw:.4f}" if isinstance(fw, (int, float)) else "NA")
+        cell_fw = _eval_arm_cells(work, cells, obo_path, ia_path, spec, pk_known)
         nklk = [v for c, v in cell_fw.items() if c.split("-")[0] in ("nk", "lk")]
         pk = [v for c, v in cell_fw.items() if c.startswith("pk")]
         results[arm.name] = {

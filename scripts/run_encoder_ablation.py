@@ -25,12 +25,19 @@ def main() -> int:
     ap.add_argument("--epochs", type=int, default=EncoderAblationSpec.epochs)
     ap.add_argument("--train-pairs", type=int, default=EncoderAblationSpec.train_pairs)
     ap.add_argument("--seed", type=int, default=EncoderAblationSpec.seed)
+    ap.add_argument("--official", action="store_true",
+                    help="score with the official LAFA harness (toi + PK-known exclusion)")
     args = ap.parse_args()
 
+    base = EncoderAblationSpec()
+    toi = base.gt_dir / "groundtruth_terms_of_interest.txt"
+    pk_known = base.gt_dir / "groundtruth_PK_known.tsv"
     spec = EncoderAblationSpec(
         name=args.name, embedding_config_id=args.embedding_config_id, band=args.band,
         ref_n=args.ref_n, knn=args.knn, epochs=args.epochs, train_pairs=args.train_pairs,
-        seed=args.seed,
+        seed=args.seed, official_harness=args.official,
+        toi_path=toi if args.official else None,
+        pk_known_path=pk_known if args.official else None,
     )
     report = run_encoder_ablation(spec)
     print(f"\nDONE {report['name']} (hash {report['spec_hash']}):")
