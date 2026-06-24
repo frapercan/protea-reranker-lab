@@ -77,3 +77,4 @@ Dense vs sparse (T-CIENCIA)
    :maxdepth: 1
 
    sdr
+   encoder_ablation
