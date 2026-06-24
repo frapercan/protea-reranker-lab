@@ -67,6 +67,8 @@ Evaluation and analysis
    compare
    bootstrap
    hierarchical_correction
+   condprobmod
+   soft_propagation
    negative_sampling_audit
    band_registry_bridge
 
