@@ -27,7 +27,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
-import psycopg2
 import scipy.sparse as sp
 import torch
 import torch.nn as nn
@@ -369,6 +368,8 @@ def _run_cafaeval_official(cell: str, work_dir: Path, obo_path: Path, ia_path: P
 # --------------------------------------------------------------------------- runner
 def _load_data(spec: EncoderAblationSpec, dag: GoDag, queries: list[str], rng):
     """Pull the t0 reference pool (embeddings + GO closures) and the query embeddings (read-only)."""
+    import psycopg2  # lazy: keep the module importable (e.g. for autodoc) without the DB driver
+
     conn = psycopg2.connect(spec.dsn)
     cur = conn.cursor()
     qset = set(queries)
