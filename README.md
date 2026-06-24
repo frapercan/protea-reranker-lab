@@ -8,7 +8,15 @@
 [![License: Unlicense](https://img.shields.io/badge/license-Unlicense-blue.svg)](https://unlicense.org/)
 [![PyPI](https://img.shields.io/pypi/v/protea-reranker-lab.svg)](https://pypi.org/project/protea-reranker-lab/)
 
-Offline LightGBM training laboratory for the PROTEA GO-term reranker.
+This is the offline LightGBM reranker training and evaluation lab for
+PROTEA. It pulls frozen feature datasets exported from PROTEA, trains
+gradient-boosted GO-term rerankers, evaluates them with an IA-weighted
+cafaeval Fmax, and publishes winning boosters back to the platform by
+reference. The current validated champion reaches NK+LK cafaeval Fmax
+**0.7291 +/- 0.0028** (caveat: this is the per-cell selective-deployment
+number on one benchmark lineage; see the genealogy below before citing it
+elsewhere).
+
 The lab consumes frozen feature datasets exported from PROTEA, fits a
 streaming ranking model without ever loading a full DataFrame into
 memory, evaluates per ontology-aspect cell, and publishes winning
