@@ -28,11 +28,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
-import scipy.sparse as sp
 
-# torch and psycopg2 are imported lazily inside the functions that use them, so the module stays
-# importable (autodoc, unit-test collection, the numpy-only helpers) in envs without the DB driver
-# or the heavy DL stack installed. This matches the sibling train/universal_train modules.
+# torch, psycopg2 and scipy.sparse are imported lazily inside the functions that use them, so the
+# module stays importable (autodoc, unit-test collection, the numpy-only helpers) in envs without
+# the DB driver or the heavy DL stack installed. scipy in particular must stay lazy because Sphinx
+# autodoc mocks numpy, and scipy reads ``numpy.__version__`` at its own import time, which raises
+# under the mock. This matches the sibling train/universal_train modules.
 from protea_reranker_lab.band_registry_bridge import resolve_band_artifacts
 from protea_reranker_lab.native_boosters_mlflow import MlflowLogger
 from protea_reranker_lab.sdr import GoDag, information_content, lin_pairwise, propagate
@@ -43,6 +44,7 @@ from protea_reranker_lab.universal_runner import (
 )
 
 if TYPE_CHECKING:  # annotations only; not evaluated at runtime (from __future__ import annotations)
+    import scipy.sparse as sp
     import torch.nn as nn
 
 log = logging.getLogger("encoder-ablation")
@@ -270,6 +272,8 @@ def _build_arm(arm: ArmSpec, R: np.ndarray, Q: np.ndarray, closures: list[frozen
 def knn_transfer(Q: np.ndarray, R: np.ndarray, ref_closures: list[frozenset[str]], terms_ix: dict[str, int],
                  knn: int, batch: int = 1000) -> sp.csr_matrix:
     """Each query: cosine top-knn in the reference pool, similarity-weighted vote over GO closures."""
+    import scipy.sparse as sp
+
     Rn = l2n(R)
     Qn = l2n(Q)
     nq, nt = Qn.shape[0], len(terms_ix)
