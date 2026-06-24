@@ -25,13 +25,14 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import numpy as np
-import psycopg2
 import scipy.sparse as sp
-import torch
-import torch.nn as nn
 
+# torch and psycopg2 are imported lazily inside the functions that use them, so the module stays
+# importable (autodoc, unit-test collection, the numpy-only helpers) in envs without the DB driver
+# or the heavy DL stack installed. This matches the sibling train/universal_train modules.
 from protea_reranker_lab.band_registry_bridge import resolve_band_artifacts
 from protea_reranker_lab.native_boosters_mlflow import MlflowLogger
 from protea_reranker_lab.sdr import GoDag, information_content, lin_pairwise, propagate
@@ -40,6 +41,9 @@ from protea_reranker_lab.universal_runner import (
     _run_cafaeval,
     ASPECT_TO_NS,
 )
+
+if TYPE_CHECKING:  # annotations only; not evaluated at runtime (from __future__ import annotations)
+    import torch.nn as nn
 
 log = logging.getLogger("encoder-ablation")
 
@@ -187,6 +191,9 @@ def _pca(R: np.ndarray, Q: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
 def fit_encoder(R: np.ndarray, closures: list[frozenset[str]], dag: GoDag, arm: ArmSpec,
                 spec: EncoderAblationSpec) -> nn.Linear:
     """Train the GO-aligned Linear(d->dict) projection on the reference pool; return the model."""
+    import torch
+    import torch.nn as nn
+
     dev = "cuda" if torch.cuda.is_available() else "cpu"
     rng = np.random.default_rng(spec.seed)
     d = R.shape[1]
@@ -231,6 +238,8 @@ def fit_encoder(R: np.ndarray, closures: list[frozenset[str]], dag: GoDag, arm: 
 
 def apply_encoder(enc: nn.Linear, X: np.ndarray, top_k: int) -> np.ndarray:
     """Project L2-normalised embeddings through the encoder and keep the top-k real code."""
+    import torch
+
     dev = next(enc.parameters()).device
     with torch.no_grad():
         Z = enc(torch.tensor(l2n(X), device=dev)).cpu().numpy().astype(np.float32)
@@ -369,6 +378,8 @@ def _run_cafaeval_official(cell: str, work_dir: Path, obo_path: Path, ia_path: P
 # --------------------------------------------------------------------------- runner
 def _load_data(spec: EncoderAblationSpec, dag: GoDag, queries: list[str], rng):
     """Pull the t0 reference pool (embeddings + GO closures) and the query embeddings (read-only)."""
+    import psycopg2
+
     conn = psycopg2.connect(spec.dsn)
     cur = conn.cursor()
     qset = set(queries)
@@ -451,6 +462,8 @@ def train_and_save_encoder(spec: EncoderAblationSpec, arm: ArmSpec, out_path: Pa
     operation) loads to project any protein's mean-pooled embedding into the learned code:
     ``topk_real(enc(l2n(x)), top_k)``. Meta carries everything needed to reconstruct + apply it.
     """
+    import torch
+
     obo_path, _ = resolve_band_artifacts(spec.band)
     cells = load_gt(spec.gt_dir)
     queries = sorted({a for d in cells.values() for a in d["proteins"]})
