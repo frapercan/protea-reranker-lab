@@ -39,7 +39,7 @@ Feature-set legend:
 | [leakage-fix-filtered](#leakage-fix-filtered) | esmc_300m/K5/LR/lean/bench-v1-K5-filtered | 3 cells | partial (3 cells only) | iterate (leakage mitigation baseline) | historical |
 | [leakage-fix-grid](#leakage-fix-grid) | esmc_300m/K5/LR/lean/bench-v1-K5-filtered | 9 cells x 3 seeds | NK+LK avg ~0.621 (lab) | drop (superseded by v226 dataset) | FARM-EXP.9 (#24) |
 | [no-emb-prostt5-k5](#no-emb-prostt5-k5) | ProstT5/K5/LR/no-emb/smoke-K5 | 9 cells | n/a (smoke dataset) | drop (PLM ablation, smoke only) | pre-PR |
-| [bench-v1-K5-nk-bpo](#bench-v1-K5-nk-bpo) | esmc_300m/K5/LR/full/bench-v1-K5 | nk-bpo | 0.465 (lab) | drop (superseded by v226 lineage) | pre-PR |
+| [bench-v1-K5-nk-bpo](#bench-v1-k5-nk-bpo) | esmc_300m/K5/LR/full/bench-v1-K5 | nk-bpo | 0.465 (lab) | drop (superseded by v226 lineage) | pre-PR |
 | [smoke-v226-lineage-mini](#smoke-v226-lineage-mini) | esmc_300m/K5/LR/lean+lin/bench-v1-K5-v226-lineage-mini | pk-mfo | 0.137 (lab, short budget) | smoke (lineage pipeline smoke test) | historical |
 | [study-v22-mini](#study-v22-mini) | esmc_300m/K5/LR/lean+lin/bench-v1-K5-v226-lineage-mini | 9 cells | NK+LK avg 0.673 cafaeval | iterate (mini budget, v226-mini dataset) | historical |
 | [study-v22](#study-v22) | esmc_300m/K5/LR/lean+lin/bench-v1-K5-v226-lineage-prostt5 | 6 cells NK+LK | **0.6215 +- 0.0014** | **ship** (LB.2 publishable; LAFA v22 champion) | PR #18 (LR.1) |
@@ -49,7 +49,7 @@ Feature-set legend:
 | [study-v26-binary](#study-v26-binary) | esmc_300m/K5/BIN/lean+lin+emb/bench-v1-K5-v226-lineage-prostt5 | 9 cells | NK+LK avg ~0.745 (best); PK broken | **ship** (NK+LK cells, binary objective champion) | PR #19 (LB.3), PR #20 (LM.3) |
 | [study-v27-binary-multiseed](#study-v27-binary-multiseed) | esmc_300m/K5/BIN/lean+lin+emb/bench-v1-K5-v226-lineage-prostt5 | 6 cells NK+LK, 3 seeds | NK+LK avg **0.7378 +- 0.0028** (5/6 sig95 vs v22) | **ship** (publishable CIs for Ch.6; binary champion replicated) | this PR |
 | [lr4-v18-selective](#lr4-v18-selective) | esmc_300m/K5/LR/lean+lin/bench-v1-K5-filtered | 3 cells | recomputed leakage-free | drop (historical policy, superseded by v22) | PR #21 (LR.4) |
-| [study-selective-rerank-K10-v226](#study-selective-rerank-K10-v226) | esmc_300m/K5/LR/lean+lin/bench-v1-K5-v226-lineage-prostt5 | 6 NK+LK + 3 PK baseline | **0.6215 +- 0.0014** (9-cell selective avg) | **ship** (FARM-EXP.10 recomputed champion; supersedes legacy 0.4562) | PRs #15, #18, #21 (FARM-EXP.10+LR.1+LR.4) |
+| [study-selective-rerank-K10-v226](#study-selective-rerank-k10-v226) | esmc_300m/K5/LR/lean+lin/bench-v1-K5-v226-lineage-prostt5 | 6 NK+LK + 3 PK baseline | **0.6215 +- 0.0014** (9-cell selective avg) | **ship** (FARM-EXP.10 recomputed champion; supersedes legacy 0.4562) | PRs #15, #18, #21 (FARM-EXP.10+LR.1+LR.4) |
 | [study-farm-exp-9b-94cell](#study-farm-exp-9b-94cell) | esmc_300m/K5/LR/lean/bench-v1-K5-filtered | 9 cells x 3 seeds + 39 ablations + 27 hparam + 1 standalone = 94 cells | NK avg 0.6654, LK avg 0.6590, PK avg 0.2320 (bench-v1-K5-filtered, NOT comparable to v226) | iterate (leakage-fixed transversal rerun; ablation + hparam audit) | FARM-EXP.9b (this PR) |
 
 ## Detailed entries

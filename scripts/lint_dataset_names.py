@@ -74,8 +74,8 @@ SKIP_DIRS: frozenset[str] = frozenset({
 # Default scan roots, relative to cwd.
 DEFAULT_ROOTS: tuple[str, ...] = (
     "champions.md",
-    "spec_catalog.md",
-    "EXPERIMENTS.md",
+    "docs/source/spec_catalog.md",
+    "docs/source/experiment_log.md",
     "experiments",
     "scripts",
     "src",

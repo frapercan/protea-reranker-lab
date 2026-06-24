@@ -1,4 +1,9 @@
-# EXPERIMENTS champion log
+# Experiment champion log
+
+```{note}
+This log is historical and may lag the current champion. For the current
+validated champion see {doc}`concepts`.
+```
 
 Canonical record of reranker experiment outcomes on bench-v1-K5-v226-lineage-prostt5.
 All entries use dataset eval_snapshot_pair v226-v230 and cafaeval
