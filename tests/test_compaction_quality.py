@@ -15,11 +15,15 @@ from protea_reranker_lab.compaction_quality import (
     late_interaction_maxsim,
     length_bucket,
     max_pool,
+    mean_of_reps,
     mean_pool,
     multivector_codes,
     multivector_pairwise_fn,
+    normweighted_mean_of_reps,
     pca_fit_transform,
+    representative_residues,
     sdr_union_codes,
+    sdr_union_of_reps,
     sinkhorn_ot_sim,
     tanimoto_pairwise_fn,
 )
@@ -108,3 +112,51 @@ def test_cosine_pairwise_self_one() -> None:
     mm = mean_pool(res)
     sim = cosine_pairwise_fn(mm)
     assert abs(sim(0, 0) - 1.0) < 1e-5
+
+
+def test_representative_residues_count_and_passthrough() -> None:
+    res = _toy_residues()
+    reps = representative_residues(res, m=4, seed=0)
+    d = res[0].shape[1]
+    # short protein (40 res > 4) collapses to exactly M centroids; raw (un-normalised)
+    assert reps[1].shape == (4, d)
+    assert reps[2].shape == (4, d)
+    # a protein with at most M residues keeps all its residues unchanged
+    short = [np.random.default_rng(9).standard_normal((3, d)).astype(np.float32)]
+    reps_short = representative_residues(short, m=4, seed=0)
+    assert reps_short[0].shape == (3, d)
+    np.testing.assert_allclose(reps_short[0], short[0])
+
+
+def test_mean_of_reps_shape_and_budget() -> None:
+    res = _toy_residues()
+    d = res[0].shape[1]
+    reps = representative_residues(res, m=4, seed=0)
+    mm = mean_of_reps(reps)
+    assert mm.shape == (3, d)
+    # single dense vector at 2*d bytes is the advertised budget (flat cosine code)
+    sim = cosine_pairwise_fn(mm)
+    assert abs(sim(0, 0) - 1.0) < 1e-5
+
+
+def test_normweighted_mean_of_reps_shape() -> None:
+    res = _toy_residues()
+    d = res[0].shape[1]
+    reps = representative_residues(res, m=4, seed=0)
+    nm = normweighted_mean_of_reps(reps)
+    assert nm.shape == (3, d)
+    # all-zero reps fall back to a plain mean (no div-by-zero)
+    z = [np.zeros((4, d), dtype=np.float32)]
+    out = normweighted_mean_of_reps(z)
+    assert out.shape == (1, d)
+    assert np.isfinite(out).all()
+
+
+def test_sdr_union_of_reps_budget_and_popcount() -> None:
+    res = _toy_residues()
+    reps = representative_residues(res, m=4, seed=0)
+    sdr, nbytes = sdr_union_of_reps(reps, per_residue_k=3, final_k=8)
+    assert nbytes == 2 * 8
+    assert (sdr.sum(axis=1) == 8).all()
+    sim = tanimoto_pairwise_fn(sdr)
+    assert abs(sim(0, 0) - 1.0) < 1e-6
