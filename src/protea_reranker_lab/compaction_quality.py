@@ -252,6 +252,98 @@ def multivector_pairwise_fn(
     return _sim
 
 
+# ---------------------------------------------------------------------------
+# Selection-without-matching: collapse the SAME M representatives to a single
+# vector. These decompose the multi-vector edge into (a) selecting M denoised
+# modes and (b) matching them via late interaction. Each single-vector code
+# below keeps the SELECTION and DROPS the MATCHING, so comparing them against
+# ``mean`` (mean of ALL residues) and ``multivector`` (full late interaction)
+# isolates which of the two carries the multi-vector advantage.
+# ---------------------------------------------------------------------------
+def representative_residues(
+    residues: Sequence[np.ndarray],
+    m: int,
+    *,
+    seed: int = 0,
+) -> list[np.ndarray]:
+    """Return the SAME ``M`` representative residue centroids the multi-vector arm keeps.
+
+    Identical light Lloyd k-means selection as :func:`multivector_codes`, but the
+    centroids are returned UN-normalised (raw cluster means in the residue space) and
+    in float32, so a downstream single-vector collapse can keep magnitude information
+    (e.g. norm-weighting). Proteins with at most ``M`` residues keep all their residues.
+    The returned cloud is the selection that the multi-vector arm matches over.
+    """
+    rng = np.random.default_rng(seed)
+    reps: list[np.ndarray] = []
+    for r in residues:
+        x = r.astype(np.float32)
+        if x.shape[0] <= m:
+            reps.append(x.copy())
+            continue
+        ru = _l2norm_rows(x)  # assign on cosine, same as the multi-vector k-means
+        cen_unit = ru[rng.choice(ru.shape[0], size=m, replace=False)].copy()
+        assign = np.zeros(ru.shape[0], dtype=np.int64)
+        for _ in range(8):
+            assign = (ru @ cen_unit.T).argmax(axis=1)
+            for c in range(m):
+                members = ru[assign == c]
+                if members.shape[0]:
+                    cen_unit[c] = members.mean(axis=0)
+            cen_unit = _l2norm_rows(cen_unit)
+        # raw (un-normalised) centroids = mean of the ORIGINAL residues per cluster,
+        # so cluster magnitude (a denoised "salience") survives for norm-weighting.
+        cen_raw = np.zeros((m, x.shape[1]), dtype=np.float32)
+        for c in range(m):
+            members = x[assign == c]
+            cen_raw[c] = members.mean(axis=0) if members.shape[0] else cen_unit[c]
+        reps.append(cen_raw)
+    return reps
+
+
+def mean_of_reps(reps: Sequence[np.ndarray]) -> np.ndarray:
+    """Mean over each protein's ``M`` representative centroids -> ``(n, d)`` dense.
+
+    Selection (the M denoised modes) plus a plain collapse, with NO late-interaction
+    matching: the cheap single-vector code that keeps the multi-vector SELECTION.
+    """
+    return np.vstack([rep.mean(axis=0) for rep in reps]).astype(np.float32)
+
+
+def normweighted_mean_of_reps(reps: Sequence[np.ndarray]) -> np.ndarray:
+    """Norm-weighted mean over the ``M`` representatives -> ``(n, d)`` dense.
+
+    Weights each representative by its L2 norm (a cheap unsupervised "salience" proxy
+    for the residue modes; NOT learned attention). Still a single d-vector with no
+    matching, so it isolates whether weighting the selection helps over a flat mean.
+    """
+    out = []
+    for rep in reps:
+        w = np.linalg.norm(rep, axis=1)
+        s = w.sum()
+        if s <= 0:
+            out.append(rep.mean(axis=0))
+        else:
+            out.append((rep * w[:, None]).sum(axis=0) / s)
+    return np.vstack(out).astype(np.float32)
+
+
+def sdr_union_of_reps(
+    reps: Sequence[np.ndarray],
+    per_residue_k: int,
+    final_k: int,
+) -> tuple[np.ndarray, int]:
+    """SDR-union over the ``M`` representatives instead of all ``L`` residues.
+
+    Same k-WTA OR-bundle + length-normalised global top-``final_k`` re-sparsify as
+    :func:`sdr_union_codes`, but the bundle is built from the M representative
+    centroids only (the selection), so it tests whether a sparse code over the
+    denoised modes beats one over the raw residue cloud. Returns the ``(n, d)`` uint8
+    bitset and the byte cost (``final_k`` uint16 indices = ``2 * final_k`` bytes).
+    """
+    return sdr_union_codes(reps, per_residue_k, final_k)
+
+
 __all__ = [
     "BUCKET_EDGES",
     "BUCKET_NAMES",
@@ -260,11 +352,15 @@ __all__ = [
     "late_interaction_maxsim",
     "length_bucket",
     "max_pool",
+    "mean_of_reps",
     "mean_pool",
     "multivector_codes",
     "multivector_pairwise_fn",
+    "normweighted_mean_of_reps",
     "pca_fit_transform",
+    "representative_residues",
     "sdr_union_codes",
+    "sdr_union_of_reps",
     "sinkhorn_ot_sim",
     "tanimoto_pairwise_fn",
 ]

@@ -35,11 +35,15 @@ from protea_reranker_lab.compaction_quality import (  # noqa: E402
     cosine_pairwise_fn,
     length_bucket,
     max_pool,
+    mean_of_reps,
     mean_pool,
     multivector_codes,
     multivector_pairwise_fn,
+    normweighted_mean_of_reps,
     pca_fit_transform,
+    representative_residues,
     sdr_union_codes,
+    sdr_union_of_reps,
     sinkhorn_ot_sim,
     tanimoto_pairwise_fn,
 )
@@ -267,6 +271,33 @@ def build_compactions(
             {"compaction": "multivector", "budget": f"M{m}", "bytes": nbytes,
              "sim": multivector_pairwise_fn(codes)}
         )
+
+    # ---- selection-vs-matching decomposition -------------------------------
+    # Collapse the SAME M representatives the multi-vector arm keeps into a single
+    # vector (selection, NO late-interaction matching). If these recover the
+    # multi-vector edge over plain `mean`, the edge was the SELECTION (a cheap 2*d
+    # flat code suffices); if they sit at `mean`, the edge was the MATCHING.
+    for m in args.rep_m:
+        reps = representative_residues(res, m, seed=args.seed)
+        # mean of the M representatives (selection + flat collapse) -> 2*d bytes
+        variants.append(
+            {"compaction": "mean_of_M", "budget": f"M{m}", "bytes": 2 * d,
+             "sim": cosine_pairwise_fn(mean_of_reps(reps))}
+        )
+        # norm-weighted mean of the M representatives (cheap salience proxy) -> 2*d
+        variants.append(
+            {"compaction": "normweighted_mean_of_M", "budget": f"M{m}", "bytes": 2 * d,
+             "sim": cosine_pairwise_fn(normweighted_mean_of_reps(reps))}
+        )
+        # SDR-union over the M representatives (sparse selection) -> 2*final_k bytes
+        for fk in args.rep_sdr_k:
+            sdr, nbytes = sdr_union_of_reps(
+                reps, per_residue_k=args.sdr_per_residue_k, final_k=fk
+            )
+            variants.append(
+                {"compaction": "sdr_union_of_M", "budget": f"M{m}k{fk}", "bytes": nbytes,
+                 "sim": tanimoto_pairwise_fn(sdr)}
+            )
     return variants
 
 
@@ -322,7 +353,7 @@ def log_to_mlflow(args, rows, pairs, gold, ot, accs, lens, run_tag):  # noqa: PL
     import mlflow
 
     mlflow.set_tracking_uri(MLFLOW_URI)
-    mlflow.set_experiment(EXPERIMENT)
+    mlflow.set_experiment(getattr(args, "experiment", EXPERIMENT))
 
     with mlflow.start_run(run_name=f"parent-{run_tag}") as parent:
         mlflow.log_params(
@@ -466,8 +497,13 @@ def main() -> int:
     ap.add_argument("--sdr-k", type=int, nargs="+", default=[32, 128, 512])
     ap.add_argument("--sdr-per-residue-k", type=int, default=16)
     ap.add_argument("--mv-m", type=int, nargs="+", default=[2, 8, 32])
+    # selection-vs-matching decomposition: collapse the SAME M reps to one vector
+    ap.add_argument("--rep-m", type=int, nargs="+", default=[8, 32])
+    ap.add_argument("--rep-sdr-k", type=int, nargs="+", default=[32, 128])
     ap.add_argument("--ot-cap", type=int, default=64)
     ap.add_argument("--no-ot", action="store_true")
+    ap.add_argument("--experiment", default=EXPERIMENT,
+                    help="MLflow experiment (use compaction-aggregate for the decomposition)")
     ap.add_argument("--tag", default="full")
     args = ap.parse_args()
 
