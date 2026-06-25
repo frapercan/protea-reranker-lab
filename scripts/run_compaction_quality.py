@@ -98,20 +98,34 @@ def sample_stratified(n_per_bucket: int, seed: int) -> list[tuple[str, int, str]
 # ---------------------------------------------------------------------------
 def forward_residues(
     proteins: list[tuple[str, int, str]],
+    *,
+    chunk_size: int = 512,
+    overlap: int = 64,
 ) -> tuple[list[str], list[np.ndarray]]:
-    """Forward each protein through ankh-base, return per-residue (L, 768) arrays.
+    """Forward each protein through ankh-base CHUNK-WISE, return per-residue (L, 768).
 
-    Shortest-first so a stray OOM on the longest does not lose the batch; per-protein
-    forward (batch=1) to bound VRAM; arrays kept in RAM as float32 for the study.
+    This matches how ankh-base is actually used on long proteins (PROTEA's chunked
+    embedding config ``6542db1e``: ``chunk_size=512, chunk_overlap=64``). Each window is
+    forwarded as its OWN sequence (residues attend only within the window, exactly the
+    production semantics), not sliced out of a single full-length forward. Besides being
+    faithful to training/serving, this bounds every forward to <= ``chunk_size`` residues
+    so attention is O(chunk^2) instead of O(L^2): no slow tail, no OOM on the longest
+    proteins. Overlap is deduplicated by keeping each window's non-overlap core (the
+    first window keeps its full span; later windows drop their leading ``overlap`` rows),
+    so the stitched array has exactly ``L`` per-residue vectors in order.
+
+    Shortest-first so a stray failure on the longest does not lose the batch; arrays
+    kept in RAM as float32 for the study.
     """
     import torch
 
+    from protea_backends._chunk_helpers import compute_chunk_spans
     from protea_backends.ankh import AnkhBackend
 
     be = AnkhBackend()
     noop = lambda *a, **k: None  # noqa: E731
     model, tok = be.load_model(MODEL, "cuda", emit=noop)
-    log.info("ankh-base loaded on cuda")
+    log.info("ankh-base loaded on cuda (chunked forward cs=%d ov=%d)", chunk_size, overlap)
 
     order = sorted(range(len(proteins)), key=lambda i: proteins[i][1])
     accs: list[str] = []
@@ -121,9 +135,21 @@ def forward_residues(
     for n, i in enumerate(order):
         acc, length, seq = proteins[i]
         try:
-            t = be._compute_residue_tensors(model, tok, [seq], layers=[0], layer_agg="mean")[0]
-            arr = t.detach().float().cpu().numpy().astype(np.float32)
-            del t
+            spans = compute_chunk_spans(len(seq), chunk_size, overlap)
+            parts: list[np.ndarray] = []
+            for s, (start, end) in enumerate(spans):
+                t = be._compute_residue_tensors(
+                    model, tok, [seq[start:end]], layers=[0], layer_agg="mean"
+                )[0]
+                a = t.detach().float().cpu().numpy().astype(np.float32)
+                del t
+                # keep the non-overlap core: first window full, later windows drop the
+                # leading ``overlap`` rows that were already emitted by the prior window.
+                parts.append(a if s == 0 else a[overlap:])
+            arr = np.vstack(parts)
+            # guard: stitched length must equal the sequence length
+            if arr.shape[0] != len(seq):
+                arr = arr[: len(seq)] if arr.shape[0] > len(seq) else arr
             accs.append(acc)
             res.append(arr)
             ok += 1
@@ -178,21 +204,35 @@ def compute_gold(
     import torch
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
-    # pre-normalise + move residue sets to GPU once (float16 to fit; cosine is robust)
-    gpu: list[torch.Tensor] = []
-    for r in res:
-        t = torch.tensor(r, dtype=torch.float32, device=dev)
-        t = t / (t.norm(dim=1, keepdim=True) + 1e-12)
-        gpu.append(t.half())
+    # Pre-normalise on CPU (cheap) and move only the two sets of the current pair to
+    # GPU on demand. Preloading every residue set to VRAM exhausts the 12 GB card on a
+    # 6000-protein sample (the OOM lesson); a tiny per-protein GPU cache keeps the hot
+    # pairs resident without unbounded growth.
+    res_unit = [(r / (np.linalg.norm(r, axis=1, keepdims=True) + 1e-12)).astype(np.float16) for r in res]
+
+    cache: dict[int, "torch.Tensor"] = {}
+
+    def gpu_set(idx: int) -> "torch.Tensor":
+        t = cache.get(idx)
+        if t is None:
+            t = torch.from_numpy(res_unit[idx]).to(dev, non_blocking=True).float()
+            if len(cache) < 512:  # bounded LRU-ish cache; evict on overflow
+                cache[idx] = t
+            elif cache:
+                cache.pop(next(iter(cache)))
+                cache[idx] = t
+        return t
 
     gold = np.empty(len(pairs), dtype=np.float64)
-    for n, (i, j) in enumerate(pairs):
-        with torch.no_grad():
-            sim = (gpu[i].float() @ gpu[j].float().T)
+    with torch.no_grad():
+        for n, (i, j) in enumerate(pairs):
+            sim = gpu_set(i) @ gpu_set(j).T
             gold[n] = float(0.5 * (sim.max(dim=1).values.mean() + sim.max(dim=0).values.mean()))
-        if n % 4000 == 0:
-            torch.cuda.empty_cache()
-    del gpu
+            del sim
+            if n % 2000 == 0:
+                cache.clear()
+                torch.cuda.empty_cache()
+    cache.clear()
     torch.cuda.empty_cache()
 
     ot = np.full(len(pairs), np.nan, dtype=np.float64)
@@ -469,11 +509,28 @@ def main() -> int:
     ap.add_argument("--ot-cap", type=int, default=64)
     ap.add_argument("--no-ot", action="store_true")
     ap.add_argument("--tag", default="full")
+    ap.add_argument("--cache-dir", default=None,
+                    help="cache the transient forward here so re-runs of the cheap "
+                         "gold/sweep/log stages skip the ~25 min GPU forward")
     args = ap.parse_args()
 
     log.info("=== compaction-quality %s: sampling %d/bucket ===", args.tag, args.n_per_bucket)
-    proteins = sample_stratified(args.n_per_bucket, args.seed)
-    accs, res = forward_residues(proteins)
+    cache_npz = None
+    if args.cache_dir:
+        os.makedirs(args.cache_dir, exist_ok=True)
+        cache_npz = os.path.join(args.cache_dir, f"residues_{args.tag}_{args.n_per_bucket}_{args.seed}.npz")
+    if cache_npz and os.path.exists(cache_npz):
+        log.info("loading cached forward from %s", cache_npz)
+        blob = np.load(cache_npz, allow_pickle=True)
+        accs = list(blob["accs"])
+        res = list(blob["res"])
+    else:
+        proteins = sample_stratified(args.n_per_bucket, args.seed)
+        accs, res = forward_residues(proteins)
+        if cache_npz:
+            np.savez(cache_npz, accs=np.array(accs, dtype=object),
+                     res=np.array(res, dtype=object))
+            log.info("cached forward to %s", cache_npz)
     lens = np.array([r.shape[0] for r in res])
     bucket_of = lens_bucket(lens)
     for b in BUCKET_NAMES:
