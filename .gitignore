@@ -19,6 +19,8 @@ runs/
 outputs/
 sdr_a_out/
 sdr_a_out_*/
+sdr_length_out/
+sdr_factorial_out/
 wandb/
 .wandb/
 *.log
