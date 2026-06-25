@@ -148,6 +148,82 @@ def _build_module(in_dim: int, spec: PoolSpec) -> "AttnEncoder":
 
 
 # --------------------------------------------------------------------------- training
+def _build_training_pairs(
+    closures: Sequence[frozenset[str]],
+    dag: GoDag,
+    spec: PoolSpec,
+    mean_for_mining: np.ndarray,
+    rng: np.random.Generator,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Build the (P, 2) protein index pairs and their (P,) Lin labels.
+
+    Random pairs are augmented with hard-negative pairs mined as embedding-near (cosine over
+    ``mean_for_mining``) but typically GO-far, the same recipe as the dense champion.
+    """
+    n = len(closures)
+    ic = information_content(closures, dag)
+    bic = [max((ic.get(t, 0.0) for t in c), default=0.0) for c in closures]
+
+    pairs = sample_pairs(n, spec.train_pairs, rng)
+    # hard-neg mining: embedding-near pairs whose true Lin is often low (the hard cases)
+    Rn = l2n(mean_for_mining)
+    n_anchor = min(spec.hardneg_anchors, n)
+    anchors = rng.choice(n, size=n_anchor, replace=False)
+    S = Rn[anchors] @ Rn.T
+    np.put_along_axis(S, anchors[:, None], -1.0, axis=1)
+    knn = min(spec.hardneg_knn, n - 1)
+    nbr = np.argpartition(-S, knn, axis=1)[:, :knn]
+    for a_i, anchor in enumerate(anchors):
+        for j in nbr[a_i]:
+            pairs.append((int(anchor), int(j)) if anchor < j else (int(j), int(anchor)))
+
+    y_arr = np.asarray(lin_pairwise(closures, ic, pairs, bic), dtype=np.float32)
+    pairs_arr = np.asarray(pairs, dtype=np.int64)  # (P, 2)
+    return pairs_arr, y_arr
+
+
+@dataclass
+class _TrainCtx:
+    """Static context shared across every minibatch step of ``fit_attention_pool``."""
+    enc: "AttnEncoder"
+    opt: "torch.optim.Optimizer"
+    units_cpu: Sequence[np.ndarray]
+    pairs_arr: np.ndarray
+    y_arr: np.ndarray
+    dev: str
+
+
+def _train_step(ctx: "_TrainCtx", sel: np.ndarray) -> "torch.Tensor | None":
+    """Run one minibatch contrastive step over the selected protein subset.
+
+    Only pairs fully inside ``sel`` are scored. Returns the loss tensor, or ``None`` if no pair
+    falls inside the subset (the caller skips the step).
+    """
+    import torch
+
+    dev = ctx.dev
+    sel_set = {int(s): i for i, s in enumerate(sel)}  # global idx -> local idx in the step
+    mask = np.fromiter((p0 in sel_set and p1 in sel_set for p0, p1 in ctx.pairs_arr),
+                       dtype=bool, count=len(ctx.pairs_arr))
+    if not mask.any():
+        return None
+    sub_pairs = ctx.pairs_arr[mask]
+    li = torch.tensor([sel_set[int(p)] for p in sub_pairs[:, 0]], device=dev)
+    lj = torch.tensor([sel_set[int(p)] for p in sub_pairs[:, 1]], device=dev)
+    y = torch.tensor(ctx.y_arr[mask], device=dev)
+
+    batch_units = [torch.tensor(ctx.units_cpu[int(s)], device=dev) for s in sel]
+    z = ctx.enc.encode(batch_units)  # (step_n, dict) with grad through the pool
+    zi, zj = z[li], z[lj]
+    cos = (zi * zj).sum(1) / (zi.norm(dim=1) * zj.norm(dim=1) + 1e-8)
+    loss = ((cos - y) ** 2).mean()
+    ctx.opt.zero_grad()
+    loss.backward()
+    ctx.opt.step()
+    del z, batch_units
+    return loss
+
+
 def fit_attention_pool(
     unit_arrays: Sequence[np.ndarray],
     closures: Sequence[frozenset[str]],
@@ -169,59 +245,25 @@ def fit_attention_pool(
     n = len(closures)
     d = unit_arrays[0].shape[1]
 
-    ic = information_content(closures, dag)
-    bic = [max((ic.get(t, 0.0) for t in c), default=0.0) for c in closures]
-
-    pairs = sample_pairs(n, spec.train_pairs, rng)
-    # hard-neg mining: embedding-near pairs whose true Lin is often low (the hard cases)
-    Rn = l2n(mean_for_mining)
-    n_anchor = min(spec.hardneg_anchors, n)
-    anchors = rng.choice(n, size=n_anchor, replace=False)
-    S = Rn[anchors] @ Rn.T
-    np.put_along_axis(S, anchors[:, None], -1.0, axis=1)
-    knn = min(spec.hardneg_knn, n - 1)
-    nbr = np.argpartition(-S, knn, axis=1)[:, :knn]
-    for a_i, anchor in enumerate(anchors):
-        for j in nbr[a_i]:
-            pairs.append((int(anchor), int(j)) if anchor < j else (int(j), int(anchor)))
-
-    y_all = np.asarray(lin_pairwise(closures, ic, pairs, bic), dtype=np.float32)
-    # index pairs by protein for the minibatch step (only pairs fully inside the step are scored)
-    pairs_arr = np.asarray(pairs, dtype=np.int64)  # (P, 2)
-    y_arr = y_all
+    pairs_arr, y_arr = _build_training_pairs(closures, dag, spec, mean_for_mining, rng)
 
     # units stay on CPU (huge for residues); each step moves only its protein-batch to GPU, with
     # a per-protein unit cap so the autograd graph over activations is bounded by length too.
     units_cpu = [cap_units(u.astype(np.float32), spec.max_units) for u in unit_arrays]
     enc = _build_module(d, spec).to(dev)
     opt = torch.optim.Adam(enc.parameters(), lr=spec.lr)
+    ctx = _TrainCtx(enc, opt, units_cpu, pairs_arr, y_arr, dev)
 
     step_n = min(spec.proteins_per_step, n)
     for e in range(spec.epochs):
         sel = rng.choice(n, size=step_n, replace=False)
-        sel_set = {int(s): i for i, s in enumerate(sel)}  # global idx -> local idx in the step
-        # pairs fully inside the selected protein subset
-        mask = np.fromiter((p0 in sel_set and p1 in sel_set for p0, p1 in pairs_arr),
-                           dtype=bool, count=len(pairs_arr))
-        if not mask.any():
+        loss = _train_step(ctx, sel)
+        if loss is None:
             continue
-        sub_pairs = pairs_arr[mask]
-        li = torch.tensor([sel_set[int(p)] for p in sub_pairs[:, 0]], device=dev)
-        lj = torch.tensor([sel_set[int(p)] for p in sub_pairs[:, 1]], device=dev)
-        y = torch.tensor(y_arr[mask], device=dev)
-
-        batch_units = [torch.tensor(units_cpu[int(s)], device=dev) for s in sel]
-        z = enc.encode(batch_units)  # (step_n, dict) with grad through the pool
-        zi, zj = z[li], z[lj]
-        cos = (zi * zj).sum(1) / (zi.norm(dim=1) * zj.norm(dim=1) + 1e-8)
-        loss = ((cos - y) ** 2).mean()
-        opt.zero_grad()
-        loss.backward()
-        opt.step()
         if e % 30 == 0:
-            log.info("  [attn-pool] epoch %3d loss=%.4f (step_n=%d pairs=%d)",
-                     e, float(loss.detach()), step_n, int(mask.sum()))
-        del z, batch_units, loss
+            log.info("  [attn-pool] epoch %3d loss=%.4f (step_n=%d)",
+                     e, float(loss.detach()), step_n)
+        del loss
     return enc
 
 
