@@ -182,21 +182,28 @@ def compute_gold(
     import torch
 
     dev = "cuda" if torch.cuda.is_available() else "cpu"
-    # pre-normalise + move residue sets to GPU once (float16 to fit; cosine is robust)
-    gpu: list[torch.Tensor] = []
+    # Pre-normalise each residue set once on CPU (float16; cosine is robust). At full
+    # study scale the whole pool (incl. the very-long bucket) does NOT fit on a 12 GB
+    # GPU, so only the two sets of the current pair are moved to the GPU on demand and
+    # freed after -- bounding VRAM to one pair while keeping the EXACT full-resolution
+    # max-sim gold (no striding on the primary gold).
+    norm: list[torch.Tensor] = []
     for r in res:
-        t = torch.tensor(r, dtype=torch.float32, device=dev)
+        t = torch.tensor(r, dtype=torch.float32)
         t = t / (t.norm(dim=1, keepdim=True) + 1e-12)
-        gpu.append(t.half())
+        norm.append(t.half())
 
     gold = np.empty(len(pairs), dtype=np.float64)
     for n, (i, j) in enumerate(pairs):
         with torch.no_grad():
-            sim = (gpu[i].float() @ gpu[j].float().T)
+            pi = norm[i].to(dev).float()
+            qj = norm[j].to(dev).float()
+            sim = pi @ qj.T
             gold[n] = float(0.5 * (sim.max(dim=1).values.mean() + sim.max(dim=0).values.mean()))
+            del pi, qj, sim
         if n % 4000 == 0:
             torch.cuda.empty_cache()
-    del gpu
+    del norm
     torch.cuda.empty_cache()
 
     ot = np.full(len(pairs), np.nan, dtype=np.float64)
