@@ -10,6 +10,60 @@ All entries use dataset eval_snapshot_pair v226-v230 and cafaeval
 (prop=fill, norm=cafa, no_orphans=True, max_terms=500, th_step=0.001).
 
 
+## Backbone size-vs-signal sweep (2026-06-25)
+
+**Status:** done (Stage A, cached mean substrates only). Question: is a SMALL
+ESM2 a faithful CHEAP dev substrate for iterating the learned-head architecture,
+or does backbone size/family matter enough to justify the compute? Proxy =
+GO-semantic correlation, NOT f_micro_w. Script `scripts/run_backbone_size_sweep.py`,
+MLflow experiment `backbone-size-sweep`. v227-t0 window, t0 OBO, leakage-clean.
+Shared length-balanced sample (1500 proteins/bucket, L<=1959 truncation-clean),
+buckets short<=318 / medium 319-969 / long 970-1959. Per backbone the small
+champion hard-neg k-WTA head (the `d8979601` recipe, `encoder_ablation.fit_encoder`,
+2048d/top-128, 120 epochs) is trained on that backbone's cached means; arms are
+`learned` (Tanimoto) and `dense-mean-cosine`.
+
+Learned-head Spearman vs GO (Resnik mean over buckets), ascending in size:
+
+| backbone   | params | learned Resnik (mean) | learned Lin (mean) | dense Resnik (mean) |
+|------------|-------:|----------------------:|-------------------:|--------------------:|
+| esm2-8m    |   7.5M | 0.165 | 0.190 | 0.142 |
+| esm2-150m  |   148M | 0.205 | 0.227 | 0.207 |
+| esmc-300m  |   300M | 0.267 | 0.286 | 0.175 |
+| ankh-base  |   450M | 0.366 | 0.386 | 0.199 |
+| esmc-600m  |   600M | 0.271 | 0.302 | 0.143 |
+| esm2-650m  |   650M | 0.261 | 0.295 | 0.155 |
+| ankh-large |   1.9B | 0.421 | 0.450 | 0.195 |
+| prott5-xl  |   3.0B | 0.384 | 0.407 | 0.287 |
+| esm2-3b    |   3.0B | 0.309 | 0.336 | 0.093 |
+| prostt5-xl |   3.0B | 0.273 | 0.293 | 0.274 |
+
+Reads:
+- The learned signal GROWS with size and does NOT plateau at the cheap end: the
+  small ESM2 (8M/150M) loses about 0.15 to 0.25 absolute Spearman versus the
+  strong backbones. Small ESM2 is NOT a faithful dev substrate.
+- Family dominates raw size. Ankh-base (450M) beats EVERY ESM2 (including ESM2-3B)
+  and both ESMC and ProstT5 on the learned arm, and nearly matches ankh-large (1.9B).
+- The learned head amplifies most where the dense baseline is weak (esm2-3b dense
+  Resnik 0.093 -> learned 0.309), and the gain is largest on the LONG bucket.
+- **Proposed dev substrate: Ankh-base (450M)** = the cheapest backbone that
+  preserves the signal (within about 0.05 of the best big one, ankh-large), already
+  fully cached, 768d. ProtT5-XL has the strongest dense baseline but is 6.7x larger.
+- The cached set ALREADY includes the few-million-param ESM2 end (esm2_t6_8M and
+  esm2_t30_150M, NULL display_name in `embedding_config`), so NO generation is
+  needed for this read; and the curve says generating more small ESM2 would not
+  help (small is demonstrably worse, not "fine").
+
+Per-residue cost note for a future Stage B (chunk/residue heads): on a 12GB RTX
+3060, mean extraction is already cached for all ten; per-RESIDUE extraction for
+ankh-base (~450M, fp16) fits comfortably (the per_residue_v227 sample was built on
+this box) at roughly hundreds of proteins/min; ESM2-3B and the 3B T5 backbones are
+near the 12GB edge per-residue (need short-batch / length-capped passes), so the
+cheap-and-faithful Stage B substrate is also ankh-base. Recommendation: iterate
+Stage B (chunk.learned / residue.learned) on ankh-base; reserve ankh-large and
+prott5-xl for final validation only.
+
+
 ## LB.3 closure (2026-05-18)
 
 **Status:** done. Per-cell paired bootstrap confidence intervals on the
