@@ -328,26 +328,48 @@ def run(args: argparse.Namespace) -> dict:
     )
     mean_matrix = np.vstack([mean[a] for a in accs]).astype(np.float32)
 
+    # The learned-attention-pool cells are a real (if small) training job. They are GUARDED so a
+    # GPU OOM or any failure degrades to a logged skip and NEVER aborts the cheap no-train report
+    # (dense + naive A0/A1/A2 + champion learned-mean). The heavy residue training in particular is
+    # deferred to dedicated gated slices if it cannot fit the 12GB quick-experiment budget.
+    deferred: list[str] = []
+
+    def _oom_names():
+        import torch
+        return (torch.cuda.OutOfMemoryError, RuntimeError)
+
     chunk_pool_code = None
     if not args.skip_chunk_learned:
-        log.info("training CHUNK attention-pool (n=%d, epochs=%d)", len(accs), pool_spec.epochs)
-        chunk_units = [l2n(chunks[a]) for a in accs]
-        enc_c = fit_attention_pool(chunk_units, closures_all, dag, pool_spec, mean_matrix)
-        chunk_pool_code = apply_attention_pool(enc_c, chunk_units, pool_spec.top_k)
-        del enc_c
+        try:
+            log.info("training CHUNK attention-pool (n=%d, epochs=%d)", len(accs), pool_spec.epochs)
+            chunk_units = [l2n(chunks[a]) for a in accs]
+            enc_c = fit_attention_pool(chunk_units, closures_all, dag, pool_spec, mean_matrix)
+            chunk_pool_code = apply_attention_pool(
+                enc_c, chunk_units, pool_spec.top_k, max_units=pool_spec.max_units)
+            del enc_c
+        except _oom_names() as exc:  # pragma: no cover - GPU-only path
+            log.warning("chunk|learned DEFERRED (training failed: %s)", str(exc)[:160])
+            deferred.append("chunk|learned(training-failed)")
+            chunk_pool_code = None
 
     residue_pool_code = None
     res_idx = [i for i, a in enumerate(accs) if has_res[a]]
     if not args.skip_residue_learned and len(res_idx) >= args.min_bucket_n:
-        log.info("training RESIDUE attention-pool (n=%d with residue arrays)", len(res_idx))
-        res_units = [l2n(np.load(os.path.join(RESDIR, f"{accs[i]}.npy")).astype(np.float32))
-                     for i in res_idx]
-        res_clo = [closures_all[i] for i in res_idx]
-        res_mean = mean_matrix[res_idx]
-        enc_r = fit_attention_pool(res_units, res_clo, dag, pool_spec, res_mean)
-        codes = apply_attention_pool(enc_r, res_units, pool_spec.top_k)
-        residue_pool_code = {accs[res_idx[j]]: codes[j] for j in range(len(res_idx))}
-        del enc_r
+        try:
+            log.info("training RESIDUE attention-pool (n=%d with residue arrays)", len(res_idx))
+            res_units = [l2n(np.load(os.path.join(RESDIR, f"{accs[i]}.npy")).astype(np.float32))
+                         for i in res_idx]
+            res_clo = [closures_all[i] for i in res_idx]
+            res_mean = mean_matrix[res_idx]
+            enc_r = fit_attention_pool(res_units, res_clo, dag, pool_spec, res_mean)
+            codes = apply_attention_pool(
+                enc_r, res_units, pool_spec.top_k, max_units=pool_spec.max_units)
+            residue_pool_code = {accs[res_idx[j]]: codes[j] for j in range(len(res_idx))}
+            del enc_r, res_units
+        except _oom_names() as exc:  # pragma: no cover - GPU-only path
+            log.warning("residue|learned DEFERRED (training failed: %s)", str(exc)[:160])
+            deferred.append("residue|learned(training-failed)")
+            residue_pool_code = None
 
     # group indices by bucket
     buckets: dict[str, list[int]] = {name: [] for name, _, _ in BUCKETS}
@@ -447,6 +469,7 @@ def run(args: argparse.Namespace) -> dict:
         skipped.append("chunk|learned(--skip-chunk-learned)")
     if args.skip_residue_learned:
         skipped.append("residue|learned(--skip-residue-learned)")
+    skipped.extend(deferred)
 
     return {
         "n_proteins": len(accs),
@@ -653,7 +676,7 @@ def parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--per-bucket-cap", type=int, default=2000,
                    help="max DB proteins per length bucket")
     p.add_argument("--n-pairs", type=int, default=20_000, help="protein pairs per bucket")
-    p.add_argument("--kwta-k", type=int, nargs="+", default=[64, 128])
+    p.add_argument("--kwta-k", type=int, nargs="+", default=[32, 64, 128])
     p.add_argument("--min-bucket-n", type=int, default=50)
     p.add_argument("--dict-dim", type=int, default=2048)
     p.add_argument("--pool-top-k", type=int, default=128)

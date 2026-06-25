@@ -61,6 +61,12 @@ class PoolSpec:
     hardneg_knn: int = 30
     lr: float = 1e-3
     seed: int = 42
+    # memory bounds (RTX-3060 12GB): per epoch pool a SUBSET of proteins with grad and use only
+    # the pairs fully inside that subset (minibatch contrastive). max_units caps the residues per
+    # protein fed to the pool (longest proteins are subsampled by stride), so the autograd graph
+    # over per-residue activations stays bounded regardless of sequence length.
+    proteins_per_step: int = 1200
+    max_units: int = 512
 
 
 # --------------------------------------------------------------------------- numeric utils
@@ -79,6 +85,19 @@ def topk_real(X: np.ndarray, k: int) -> np.ndarray:
     idx = np.argpartition(-np.abs(X), k, axis=1)[:, :k]
     np.put_along_axis(out, idx, np.take_along_axis(X, idx, axis=1), axis=1)
     return out
+
+
+def cap_units(units: np.ndarray, max_units: int, rng: np.random.Generator | None = None) -> np.ndarray:
+    """Subsample a protein's (n_u, d) unit matrix to at most ``max_units`` rows.
+
+    Long proteins (many residues) are bounded by an even stride so the attention pool still sees
+    the whole sequence at a fixed memory budget; short proteins (<= max_units) pass through.
+    """
+    n_u = units.shape[0]
+    if n_u <= max_units:
+        return units
+    idx = np.linspace(0, n_u - 1, max_units).round().astype(np.int64)
+    return units[idx]
 
 
 def sample_pairs(n: int, n_pairs: int, rng: np.random.Generator) -> list[tuple[int, int]]:
@@ -166,37 +185,55 @@ def fit_attention_pool(
         for j in nbr[a_i]:
             pairs.append((int(anchor), int(j)) if anchor < j else (int(j), int(anchor)))
 
-    y = torch.tensor(np.asarray(lin_pairwise(closures, ic, pairs, bic), dtype=np.float32),
-                     device=dev)
-    ti = torch.tensor([p[0] for p in pairs], device=dev)
-    tj = torch.tensor([p[1] for p in pairs], device=dev)
+    y_all = np.asarray(lin_pairwise(closures, ic, pairs, bic), dtype=np.float32)
+    # index pairs by protein for the minibatch step (only pairs fully inside the step are scored)
+    pairs_arr = np.asarray(pairs, dtype=np.int64)  # (P, 2)
+    y_arr = y_all
 
-    units_t = [torch.tensor(u, device=dev, dtype=torch.float32) for u in unit_arrays]
+    # units stay on CPU (huge for residues); each step moves only its protein-batch to GPU, with
+    # a per-protein unit cap so the autograd graph over activations is bounded by length too.
+    units_cpu = [cap_units(u.astype(np.float32), spec.max_units) for u in unit_arrays]
     enc = _build_module(d, spec).to(dev)
     opt = torch.optim.Adam(enc.parameters(), lr=spec.lr)
-    bs = 16384
-    np_ = len(pairs)
+
+    step_n = min(spec.proteins_per_step, n)
     for e in range(spec.epochs):
-        # pool every protein ONCE per epoch (cheap: one matmul of attention per protein)
-        z = enc.encode(units_t)  # (n, dict), keeps the graph for backprop through attention
+        sel = rng.choice(n, size=step_n, replace=False)
+        sel_set = {int(s): i for i, s in enumerate(sel)}  # global idx -> local idx in the step
+        # pairs fully inside the selected protein subset
+        mask = np.fromiter((p0 in sel_set and p1 in sel_set for p0, p1 in pairs_arr),
+                           dtype=bool, count=len(pairs_arr))
+        if not mask.any():
+            continue
+        sub_pairs = pairs_arr[mask]
+        li = torch.tensor([sel_set[int(p)] for p in sub_pairs[:, 0]], device=dev)
+        lj = torch.tensor([sel_set[int(p)] for p in sub_pairs[:, 1]], device=dev)
+        y = torch.tensor(y_arr[mask], device=dev)
+
+        batch_units = [torch.tensor(units_cpu[int(s)], device=dev) for s in sel]
+        z = enc.encode(batch_units)  # (step_n, dict) with grad through the pool
+        zi, zj = z[li], z[lj]
+        cos = (zi * zj).sum(1) / (zi.norm(dim=1) * zj.norm(dim=1) + 1e-8)
+        loss = ((cos - y) ** 2).mean()
         opt.zero_grad()
-        loss = torch.zeros((), device=dev)
-        for b in range(0, np_, bs):
-            sl = slice(b, b + bs)
-            zi, zj = z[ti[sl]], z[tj[sl]]
-            cos = (zi * zj).sum(1) / (zi.norm(dim=1) * zj.norm(dim=1) + 1e-8)
-            loss = loss + ((cos - y[sl]) ** 2).sum() / np_
         loss.backward()
         opt.step()
         if e % 30 == 0:
-            log.info("  [attn-pool] epoch %3d loss=%.4f (n=%d pairs=%d)", e, float(loss), n, np_)
+            log.info("  [attn-pool] epoch %3d loss=%.4f (step_n=%d pairs=%d)",
+                     e, float(loss.detach()), step_n, int(mask.sum()))
+        del z, batch_units, loss
     return enc
 
 
 def apply_attention_pool(
-    enc: "AttnEncoder", unit_arrays: Sequence[np.ndarray], top_k: int, batch: int = 512,
+    enc: "AttnEncoder", unit_arrays: Sequence[np.ndarray], top_k: int,
+    max_units: int = 512, batch: int = 256,
 ) -> np.ndarray:
-    """Encode proteins through the trained pool; return the (n, dict) top-k real codes."""
+    """Encode proteins through the trained pool; return the (n, dict) top-k real codes.
+
+    Units are capped to ``max_units`` per protein (same bound as training) and moved to GPU in
+    small batches under ``no_grad`` so inference stays within the 12GB budget for residues.
+    """
     import torch
 
     dev = next(enc.parameters()).device
@@ -204,7 +241,7 @@ def apply_attention_pool(
     enc.eval()
     with torch.no_grad():
         for b in range(0, len(unit_arrays), batch):
-            chunk = [torch.tensor(u, device=dev, dtype=torch.float32)
+            chunk = [torch.tensor(cap_units(u.astype(np.float32), max_units), device=dev)
                      for u in unit_arrays[b:b + batch]]
             z = enc.encode(chunk).cpu().numpy().astype(np.float32)
             out.append(topk_real(z, top_k))
