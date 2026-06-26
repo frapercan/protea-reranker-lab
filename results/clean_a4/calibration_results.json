@@ -1,0 +1,523 @@
+{
+  "dataset": "fullgo-clean-A4-train225-val",
+  "eval_pair": "v225-v227",
+  "eval_band": "v227",
+  "holdout_for_calibration": "v220-v225",
+  "cafa_grid": "np.arange(0.001, 1, 0.001) [matches cafaeval driver]",
+  "per_cell": [
+    {
+      "cell": "nk-mfo",
+      "category": "nk",
+      "aspect": "mfo",
+      "n_proteins": 562,
+      "n_pos": 1534,
+      "cafaeval": {
+        "raw": 0.5015976608439767,
+        "uncal": 0.5645239399612099,
+        "iso": 0.5376249493785704,
+        "platt": 0.539981451290261
+      },
+      "cafaeval_delta_iso_vs_raw": 0.03603,
+      "cafaeval_delta_uncal_vs_raw": 0.06293,
+      "boot_iso_vs_raw": {
+        "delta_mean": 0.03266,
+        "delta_ci_lo": 0.01463,
+        "delta_ci_hi": 0.05149,
+        "p_delta_le_0": 0.0,
+        "raw_ci_lo": 0.46916,
+        "raw_ci_hi": 0.52843,
+        "rerank_ci_lo": 0.50258,
+        "rerank_ci_hi": 0.56146
+      },
+      "boot_uncal_vs_raw": {
+        "delta_mean": 0.03827,
+        "delta_ci_lo": 0.02065,
+        "delta_ci_hi": 0.05632,
+        "p_delta_le_0": 0.0,
+        "raw_ci_lo": 0.46916,
+        "raw_ci_hi": 0.52843,
+        "rerank_ci_lo": 0.50907,
+        "rerank_ci_hi": 0.56714
+      },
+      "precision_recall_w": {
+        "raw": {
+          "P": 0.39942,
+          "R": 0.66034
+        },
+        "uncal": {
+          "P": 0.40649,
+          "R": 0.78805
+        },
+        "iso": {
+          "P": 0.39837,
+          "R": 0.79869
+        },
+        "platt": {
+          "P": 0.40421,
+          "R": 0.78805
+        }
+      }
+    },
+    {
+      "cell": "nk-bpo",
+      "category": "nk",
+      "aspect": "bpo",
+      "n_proteins": 811,
+      "n_pos": 1678,
+      "cafaeval": {
+        "raw": 0.4253136944962802,
+        "uncal": 0.4712925511827871,
+        "iso": 0.45257650767955565,
+        "platt": 0.4551753914464086
+      },
+      "cafaeval_delta_iso_vs_raw": 0.02726,
+      "cafaeval_delta_uncal_vs_raw": 0.04598,
+      "boot_iso_vs_raw": {
+        "delta_mean": 0.01867,
+        "delta_ci_lo": -0.00403,
+        "delta_ci_hi": 0.04076,
+        "p_delta_le_0": 0.054,
+        "raw_ci_lo": 0.33887,
+        "raw_ci_hi": 0.40326,
+        "rerank_ci_lo": 0.35933,
+        "rerank_ci_hi": 0.41696
+      },
+      "boot_uncal_vs_raw": {
+        "delta_mean": 0.02933,
+        "delta_ci_lo": 0.00998,
+        "delta_ci_hi": 0.04876,
+        "p_delta_le_0": 0.0,
+        "raw_ci_lo": 0.33887,
+        "raw_ci_hi": 0.40326,
+        "rerank_ci_lo": 0.36654,
+        "rerank_ci_hi": 0.43068
+      },
+      "precision_recall_w": {
+        "raw": {
+          "P": 0.31006,
+          "R": 0.45121
+        },
+        "uncal": {
+          "P": 0.34614,
+          "R": 0.46425
+        },
+        "iso": {
+          "P": 0.31009,
+          "R": 0.50821
+        },
+        "platt": {
+          "P": 0.34578,
+          "R": 0.46425
+        }
+      }
+    },
+    {
+      "cell": "nk-cco",
+      "category": "nk",
+      "aspect": "cco",
+      "n_proteins": 660,
+      "n_pos": 1919,
+      "cafaeval": {
+        "raw": 0.45159725355171637,
+        "uncal": 0.5544796254765552,
+        "iso": 0.5336024358567188,
+        "platt": 0.5366438194726058
+      },
+      "cafaeval_delta_iso_vs_raw": 0.08201,
+      "cafaeval_delta_uncal_vs_raw": 0.10288,
+      "boot_iso_vs_raw": {
+        "delta_mean": 0.081,
+        "delta_ci_lo": 0.05496,
+        "delta_ci_hi": 0.11043,
+        "p_delta_le_0": 0.0,
+        "raw_ci_lo": 0.43383,
+        "raw_ci_hi": 0.49116,
+        "rerank_ci_lo": 0.51562,
+        "rerank_ci_hi": 0.57097
+      },
+      "boot_uncal_vs_raw": {
+        "delta_mean": 0.08298,
+        "delta_ci_lo": 0.057,
+        "delta_ci_hi": 0.1131,
+        "p_delta_le_0": 0.0,
+        "raw_ci_lo": 0.43383,
+        "raw_ci_hi": 0.49116,
+        "rerank_ci_lo": 0.51738,
+        "rerank_ci_hi": 0.57254
+      },
+      "precision_recall_w": {
+        "raw": {
+          "P": 0.37801,
+          "R": 0.58693
+        },
+        "uncal": {
+          "P": 0.46778,
+          "R": 0.64672
+        },
+        "iso": {
+          "P": 0.46753,
+          "R": 0.63981
+        },
+        "platt": {
+          "P": 0.4673,
+          "R": 0.64672
+        }
+      }
+    },
+    {
+      "cell": "lk-mfo",
+      "category": "lk",
+      "aspect": "mfo",
+      "n_proteins": 452,
+      "n_pos": 1155,
+      "cafaeval": {
+        "raw": 0.47045962846478523,
+        "uncal": 0.5089016239887727,
+        "iso": 0.4966108011801983,
+        "platt": 0.5019248925630129
+      },
+      "cafaeval_delta_iso_vs_raw": 0.02615,
+      "cafaeval_delta_uncal_vs_raw": 0.03844,
+      "boot_iso_vs_raw": {
+        "delta_mean": 0.02468,
+        "delta_ci_lo": 0.00051,
+        "delta_ci_hi": 0.05263,
+        "p_delta_le_0": 0.022,
+        "raw_ci_lo": 0.4248,
+        "raw_ci_hi": 0.49283,
+        "rerank_ci_lo": 0.44421,
+        "rerank_ci_hi": 0.51571
+      },
+      "boot_uncal_vs_raw": {
+        "delta_mean": 0.01928,
+        "delta_ci_lo": -0.00155,
+        "delta_ci_hi": 0.04085,
+        "p_delta_le_0": 0.046,
+        "raw_ci_lo": 0.4248,
+        "raw_ci_hi": 0.49283,
+        "rerank_ci_lo": 0.43869,
+        "rerank_ci_hi": 0.51659
+      },
+      "precision_recall_w": {
+        "raw": {
+          "P": 0.33782,
+          "R": 0.69046
+        },
+        "uncal": {
+          "P": 0.3852,
+          "R": 0.61726
+        },
+        "iso": {
+          "P": 0.34721,
+          "R": 0.78459
+        },
+        "platt": {
+          "P": 0.37798,
+          "R": 0.69153
+        }
+      }
+    },
+    {
+      "cell": "lk-bpo",
+      "category": "lk",
+      "aspect": "bpo",
+      "n_proteins": 1640,
+      "n_pos": 4530,
+      "cafaeval": {
+        "raw": 0.5094338805129474,
+        "uncal": 0.519046774387038,
+        "iso": 0.5028346883972148,
+        "platt": 0.5025850329750637
+      },
+      "cafaeval_delta_iso_vs_raw": -0.0066,
+      "cafaeval_delta_uncal_vs_raw": 0.00961,
+      "boot_iso_vs_raw": {
+        "delta_mean": -0.01128,
+        "delta_ci_lo": -0.02445,
+        "delta_ci_hi": 0.00271,
+        "p_delta_le_0": 0.928,
+        "raw_ci_lo": 0.49574,
+        "raw_ci_hi": 0.53376,
+        "rerank_ci_lo": 0.48288,
+        "rerank_ci_hi": 0.52064
+      },
+      "boot_uncal_vs_raw": {
+        "delta_mean": -0.00666,
+        "delta_ci_lo": -0.01744,
+        "delta_ci_hi": 0.00366,
+        "p_delta_le_0": 0.898,
+        "raw_ci_lo": 0.49574,
+        "raw_ci_hi": 0.53376,
+        "rerank_ci_lo": 0.48779,
+        "rerank_ci_hi": 0.52644
+      },
+      "precision_recall_w": {
+        "raw": {
+          "P": 0.48345,
+          "R": 0.54729
+        },
+        "uncal": {
+          "P": 0.49132,
+          "R": 0.51995
+        },
+        "iso": {
+          "P": 0.41069,
+          "R": 0.64309
+        },
+        "platt": {
+          "P": 0.49083,
+          "R": 0.51995
+        }
+      }
+    },
+    {
+      "cell": "lk-cco",
+      "category": "lk",
+      "aspect": "cco",
+      "n_proteins": 482,
+      "n_pos": 1346,
+      "cafaeval": {
+        "raw": 0.45618604802157947,
+        "uncal": 0.48073639233279736,
+        "iso": 0.5005859753656955,
+        "platt": 0.5094269231327565
+      },
+      "cafaeval_delta_iso_vs_raw": 0.0444,
+      "cafaeval_delta_uncal_vs_raw": 0.02455,
+      "boot_iso_vs_raw": {
+        "delta_mean": 0.04137,
+        "delta_ci_lo": 0.01106,
+        "delta_ci_hi": 0.07483,
+        "p_delta_le_0": 0.006,
+        "raw_ci_lo": 0.43553,
+        "raw_ci_hi": 0.50195,
+        "rerank_ci_lo": 0.47704,
+        "rerank_ci_hi": 0.5413
+      },
+      "boot_uncal_vs_raw": {
+        "delta_mean": 0.00491,
+        "delta_ci_lo": -0.02063,
+        "delta_ci_hi": 0.03059,
+        "p_delta_le_0": 0.348,
+        "raw_ci_lo": 0.43553,
+        "raw_ci_hi": 0.50195,
+        "rerank_ci_lo": 0.4354,
+        "rerank_ci_hi": 0.50809
+      },
+      "precision_recall_w": {
+        "raw": {
+          "P": 0.40857,
+          "R": 0.53903
+        },
+        "uncal": {
+          "P": 0.51039,
+          "R": 0.43661
+        },
+        "iso": {
+          "P": 0.42259,
+          "R": 0.61844
+        },
+        "platt": {
+          "P": 0.40983,
+          "R": 0.67613
+        }
+      }
+    },
+    {
+      "cell": "pk-mfo",
+      "category": "pk",
+      "aspect": "mfo",
+      "n_proteins": 1838,
+      "n_pos": 1974,
+      "cafaeval": {
+        "raw": 0.4076962255352422,
+        "uncal": 0.3804707417244783,
+        "iso": 0.3713366770662785,
+        "platt": 0.3711201843897659
+      },
+      "cafaeval_delta_iso_vs_raw": -0.03636,
+      "cafaeval_delta_uncal_vs_raw": -0.02723,
+      "boot_iso_vs_raw": {
+        "delta_mean": -0.04548,
+        "delta_ci_lo": -0.05881,
+        "delta_ci_hi": -0.03099,
+        "p_delta_le_0": 1.0,
+        "raw_ci_lo": 0.28283,
+        "raw_ci_hi": 0.3192,
+        "rerank_ci_lo": 0.24031,
+        "rerank_ci_hi": 0.27144
+      },
+      "boot_uncal_vs_raw": {
+        "delta_mean": -0.04266,
+        "delta_ci_lo": -0.0563,
+        "delta_ci_hi": -0.02867,
+        "p_delta_le_0": 1.0,
+        "raw_ci_lo": 0.28283,
+        "raw_ci_hi": 0.3192,
+        "rerank_ci_lo": 0.24353,
+        "rerank_ci_hi": 0.27439
+      },
+      "precision_recall_w": {
+        "raw": {
+          "P": 0.21301,
+          "R": 0.51526
+        },
+        "uncal": {
+          "P": 0.15894,
+          "R": 0.67666
+        },
+        "iso": {
+          "P": 0.1566,
+          "R": 0.71014
+        },
+        "platt": {
+          "P": 0.15537,
+          "R": 0.71517
+        }
+      }
+    },
+    {
+      "cell": "pk-bpo",
+      "category": "pk",
+      "aspect": "bpo",
+      "n_proteins": 8639,
+      "n_pos": 15162,
+      "cafaeval": {
+        "raw": 0.44631303719759774,
+        "uncal": 0.27376544527281915,
+        "iso": 0.2687114323545407,
+        "platt": 0.2578525848200923
+      },
+      "cafaeval_delta_iso_vs_raw": -0.1776,
+      "cafaeval_delta_uncal_vs_raw": -0.17255,
+      "boot_iso_vs_raw": {
+        "delta_mean": -0.159,
+        "delta_ci_lo": -0.16768,
+        "delta_ci_hi": -0.14885,
+        "p_delta_le_0": 1.0,
+        "raw_ci_lo": 0.40208,
+        "raw_ci_hi": 0.41948,
+        "rerank_ci_lo": 0.24515,
+        "rerank_ci_hi": 0.26019
+      },
+      "boot_uncal_vs_raw": {
+        "delta_mean": -0.15898,
+        "delta_ci_lo": -0.16774,
+        "delta_ci_hi": -0.1489,
+        "p_delta_le_0": 1.0,
+        "raw_ci_lo": 0.40208,
+        "raw_ci_hi": 0.41948,
+        "rerank_ci_lo": 0.24533,
+        "rerank_ci_hi": 0.26041
+      },
+      "precision_recall_w": {
+        "raw": {
+          "P": 0.36342,
+          "R": 0.47205
+        },
+        "uncal": {
+          "P": 0.16725,
+          "R": 0.51349
+        },
+        "iso": {
+          "P": 0.16775,
+          "R": 0.50941
+        },
+        "platt": {
+          "P": 0.17315,
+          "R": 0.42924
+        }
+      }
+    },
+    {
+      "cell": "pk-cco",
+      "category": "pk",
+      "aspect": "cco",
+      "n_proteins": 2765,
+      "n_pos": 1883,
+      "cafaeval": {
+        "raw": 0.4079800009843607,
+        "uncal": 0.36475270237500784,
+        "iso": 0.35770315092762517,
+        "platt": 0.35556531888008763
+      },
+      "cafaeval_delta_iso_vs_raw": -0.05028,
+      "cafaeval_delta_uncal_vs_raw": -0.04323,
+      "boot_iso_vs_raw": {
+        "delta_mean": -0.07357,
+        "delta_ci_lo": -0.0881,
+        "delta_ci_hi": -0.05907,
+        "p_delta_le_0": 1.0,
+        "raw_ci_lo": 0.24211,
+        "raw_ci_hi": 0.27537,
+        "rerank_ci_lo": 0.17346,
+        "rerank_ci_hi": 0.19822
+      },
+      "boot_uncal_vs_raw": {
+        "delta_mean": -0.06944,
+        "delta_ci_lo": -0.08359,
+        "delta_ci_hi": -0.05455,
+        "p_delta_le_0": 1.0,
+        "raw_ci_lo": 0.24211,
+        "raw_ci_hi": 0.27537,
+        "rerank_ci_lo": 0.17639,
+        "rerank_ci_hi": 0.20274
+      },
+      "precision_recall_w": {
+        "raw": {
+          "P": 0.1861,
+          "R": 0.419
+        },
+        "uncal": {
+          "P": 0.1136,
+          "R": 0.56397
+        },
+        "iso": {
+          "P": 0.10836,
+          "R": 0.63523
+        },
+        "platt": {
+          "P": 0.11267,
+          "R": 0.57346
+        }
+      }
+    }
+  ],
+  "pooled_per_aspect": [
+    {
+      "aspect": "mfo",
+      "n_proteins": 2852,
+      "f_micro_w": {
+        "champion": 0.437607871712283,
+        "rerank_all_iso": 0.35191982593455157,
+        "gated_iso": 0.351426079774739
+      }
+    },
+    {
+      "aspect": "bpo",
+      "n_proteins": 11090,
+      "f_micro_w": {
+        "champion": 0.4529170544117565,
+        "rerank_all_iso": 0.21677510862769053,
+        "gated_iso": 0.21677510862769053
+      }
+    },
+    {
+      "aspect": "cco",
+      "n_proteins": 3907,
+      "f_micro_w": {
+        "champion": 0.4252411295922264,
+        "rerank_all_iso": 0.3511358782567979,
+        "gated_iso": 0.41757079822470566
+      }
+    }
+  ],
+  "pooled_means": {
+    "champion": 0.43859,
+    "rerank_all_iso": 0.30661,
+    "gated_iso": 0.32859
+  },
+  "per_cell_mean_delta_iso_vs_raw": -0.00611,
+  "per_cell_mean_delta_uncal_vs_raw": 0.0046,
+  "per_cell_mean_delta_gated_iso": 0.02398
+}

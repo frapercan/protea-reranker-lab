@@ -200,13 +200,17 @@ def _mlflow_cb(mlflow_mod, cat: str):
 # IA-weighted micro-F (numpy reimplementation of cafaeval f_micro_w)
 # ---------------------------------------------------------------------------
 def build_components(
-    proteins, go_terms, scores, labels, ancestors, ia_table, n_thresh, max_terms
+    proteins, go_terms, scores, labels, ancestors, ia_table, n_thresh, max_terms,
+    grid=None,
 ):
     """Per-protein propagated IA-weighted TP/FP step components over a threshold grid.
 
     Returns (WTP, WFP, WFN, thresholds) with WTP/WFP/WFN shape (n_prot, n_thresh).
     Mirrors cafaeval: prop='fill' (ancestor score = max descendant), no_orphans
-    (drop GO roots), max_terms cap per protein.
+    (drop GO roots), max_terms cap per protein. When ``grid`` is given (e.g.
+    cafaeval's fixed ``np.arange(th_step, 1, th_step)``) it is used verbatim so the
+    bootstrap mirrors cafaeval's scale-sensitive sweep; otherwise a per-cell
+    quantile grid (scale-invariant) is built.
     """
     order = np.argsort(proteins, kind="stable")
     proteins, go_terms = proteins[order], go_terms[order]
@@ -263,11 +267,15 @@ def build_components(
     et = np.asarray(ent_true, dtype=bool)
 
     if es.size == 0:
-        z = np.zeros((n_prot, n_thresh))
-        return z, z.copy(), np.tile(wia_true[:, None], (1, n_thresh)), np.zeros(n_thresh)
+        mm = len(grid) if grid is not None else n_thresh
+        z = np.zeros((n_prot, mm))
+        return z, z.copy(), np.tile(wia_true[:, None], (1, mm)), np.zeros(mm)
 
-    thresholds = np.quantile(es, np.linspace(0.0, 1.0, n_thresh))
-    thresholds = np.unique(thresholds)
+    if grid is not None:
+        thresholds = np.asarray(grid, dtype=np.float64)
+    else:
+        thresholds = np.quantile(es, np.linspace(0.0, 1.0, n_thresh))
+        thresholds = np.unique(thresholds)
     m = thresholds.size
     # entry active for T[j] <= score: active indices 0..k-1, k = searchsorted right
     k = np.searchsorted(thresholds, es, side="right")
