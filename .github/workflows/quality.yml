@@ -34,7 +34,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install ruff
-        run: pip install ruff
+        run: pip install "ruff==0.15.12"
       - name: ruff check (syntax + obvious bugs)
         # Research code; ruff with default rules only catches syntax
         # errors, undefined names, and trivial dead code without imposing
