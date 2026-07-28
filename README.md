@@ -12,21 +12,28 @@ This is the offline LightGBM reranker training and evaluation lab for
 PROTEA. It pulls frozen feature datasets exported from PROTEA, trains
 gradient-boosted GO-term rerankers, evaluates them with an IA-weighted
 cafaeval Fmax, and publishes winning boosters back to the platform by
-reference. The current validated champion reaches NK+LK cafaeval Fmax
-**0.7291 +/- 0.0028** (caveat: this is the per-cell selective-deployment
-number on one benchmark lineage; see the genealogy below before citing it
-elsewhere).
+reference. No champion number is quoted here as current: see the status
+below for why the whole results set is being recomputed.
 
 The lab consumes frozen feature datasets exported from PROTEA, fits a
 streaming ranking model without ever loading a full DataFrame into
 memory, evaluates per ontology-aspect cell, and publishes winning
 boosters back to PROTEA's `RerankerModel` registry.
 
-**Status:** production-grade results pipeline. The current champion
-(binary-objective, multi-seed, 2026-05-18) achieves NK+LK cafaeval Fmax
-**0.7291 +/- 0.0028** on `bench-v1-K5-v226-lineage` (3 seeds, paired
-bootstrap 95% CI strictly positive vs KNN baseline on all six NK+LK
-cells). Results are published to the doctoral thesis (Chapter 6).
+**Status:** the machinery is production grade; the results it produced are
+not current and are being recomputed.
+
+Two defects found in the scoring frame are the reason. A normalisation
+applied to the scores manufactured the baseline that every lever was then
+measured against, and a lookup built on a key that was not unique rewrote a
+measurable share of rows without failing. Neither is visible in an output
+that keeps its expected shape, and both were found by counting rather than
+by reading.
+
+So the doctoral campaign recomputes from scratch rather than carrying prior
+numbers forward. **Nothing in this file should be cited as a result.** The
+genealogy below is kept as history, because a retracted number that nobody
+can trace is worse than one that is written down and explained.
 
 <!-- protea-stack:start -->
 
@@ -62,13 +69,13 @@ lab iterates on hyperparameters and ablations entirely offline, reading
 through sorted parquet buckets as `lgb.Sequence` objects to keep peak
 RSS bounded below 15 GB even on the largest cell.
 
-**Current per-cell champion (binary-objective, multi-seed, 2026-05-18):**
-NK+LK selective average cafaeval Fmax **0.7291 +/- 0.0028** on
-`bench-v1-K5-v226-lineage` (3 seeds). All six NK+LK paired-bootstrap
-confidence intervals vs the KNN baseline are strictly positive at 95%
-(N=10000). Selective deployment policy: NK+LK cells use the binary-objective
-champion; PK cells remain on the KNN baseline (PK gains are policy-zero; see
-ADR D34). This is the publishable number for Chapter 6 of the doctoral thesis.
+**The former per-cell champion**, a multi-seed binary-objective model, was
+selected under the scoring frame described in the status above and is
+therefore withdrawn rather than superseded. Its selective deployment policy
+survives as a design finding and not as a measurement: the low-knowledge and
+limited-knowledge cells were carried by the learned model while the
+prior-knowledge cells stayed on retrieval alone, which is a statement about
+where the learned component helps rather than about how much.
 
 **Universal booster (F-RERANK-UNIVERSAL, PoC, 2026-06-08):** a single
 aspect-conditioned, K-augmented, IA-weighted LambdaMART model trained over all
@@ -79,10 +86,11 @@ candidate-set restricted; a clean v227-lineage recompute is deferred before
 publication. See [ADR D41](docs/adr/D41-universal-reranker.md) and
 [universal reranker docs](docs/source/universal_reranker.rst).
 
-The earlier LB.2 estimate (0.6215 +/- 0.0014) is superseded by the per-cell
-champion and should not be cited in place of 0.7291 in new writing. See the
-[Leakage history](#leakage-history) note for the full number genealogy and
-why 0.4562 must not be cited.
+Every figure in that genealogy predates the retraction above, so none of them
+is the number to cite in new writing and none replaces another. The
+[Leakage history](#leakage-history) note is kept for the same reason the
+genealogy is: it records how each was produced, which is what makes a
+recomputation checkable rather than a fresh start with no memory.
 
 ## Place in the stack
 
@@ -248,9 +256,15 @@ PROTEA memory key `project_anc2vec_leakage_mechanism`.
 The fix (anc2vec retrofix, multi-seed validation) produced the
 **0.6215 +/- 0.0014** LB.2 estimate. A subsequent binary-objective training
 run (three seeds, binary classification objective instead of lambdarank)
-produced the current champion **0.7291 +/- 0.0028**. The progression is:
-0.4562 (artefact, do not cite) to 0.6215 (LB.2, superseded) to 0.7291
-(binary-objective champion, current; cite this for all new writing on bench-v1-K5-v226-lineage NK+LK).
+produced the figure that stood as champion until the retraction described at
+the top of this file.
+
+The progression is kept because it is the useful part: each step was a
+correction of the one before, first an artefact, then a leakage fix, then a
+change of training objective. **None of the three is a number to cite.** They
+were all measured against a baseline that a later normalisation defect turned
+out to have manufactured, which is why the campaign recomputes rather than
+picking the largest of them.
 
 The selective-rerank decision (ADR D34) is documented in
 `docs/decisions/D34-selective-rerank-policy.md` and the formal run
