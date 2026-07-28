@@ -9,6 +9,7 @@ that holds on the actual term-transfer task, at a fraction of the index size.
 
 Reuses the data loading + GO DAG of run_sdr_chunk_correlation.py. Read-only DB. MLflow.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -24,8 +25,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import run_sdr_chunk_correlation as base  # noqa: E402
 from protea_reranker_lab.sdr import GoDag, propagate  # noqa: E402
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [knn-transfer] %(levelname)s %(message)s",
-                    datefmt="%H:%M:%S")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [knn-transfer] %(levelname)s %(message)s",
+    datefmt="%H:%M:%S",
+)
 log = logging.getLogger("knn-transfer")
 
 
@@ -61,7 +65,11 @@ def transfer(R, T, knn):
 
 def micro_fmax(pred_scores, T):
     """Global micro-Fmax over all (protein, term) pairs across a threshold sweep."""
-    pred = np.asarray(pred_scores.todense()).ravel() if sp.issparse(pred_scores) else pred_scores.ravel()
+    pred = (
+        np.asarray(pred_scores.todense()).ravel()
+        if sp.issparse(pred_scores)
+        else pred_scores.ravel()
+    )
     truth = np.asarray(T.todense()).astype(bool).ravel()
     npos = int(truth.sum())
     order = np.argsort(-pred, kind="stable")
@@ -78,8 +86,12 @@ def micro_fmax(pred_scores, T):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--dsn", default="host=localhost dbname=protea user=protea password=protea")
-    ap.add_argument("--obo", default="~/Thesis2/protea-lafa-knn/lafa_t0_Sep_2025/go-basic.obo")
+    ap.add_argument(
+        "--dsn", default="host=localhost dbname=protea user=protea password=protea"
+    )
+    ap.add_argument(
+        "--obo", default="~/Thesis2/protea-lafa-knn/lafa_t0_Sep_2025/go-basic.obo"
+    )
     ap.add_argument("--n-proteins", type=int, default=8000)
     ap.add_argument("--knn", type=int, default=30)
     ap.add_argument("--k-sdr", type=int, nargs="+", default=[32, 64, 128, 256])
@@ -108,8 +120,11 @@ def main():
         for t in c:
             rows.append(i)
             cols.append(tix[t])
-    T = sp.csr_matrix((np.ones(len(rows), np.float32), (rows, cols)),
-                      shape=(len(acc), len(terms)), dtype=np.float32)
+    T = sp.csr_matrix(
+        (np.ones(len(rows), np.float32), (rows, cols)),
+        shape=(len(acc), len(terms)),
+        dtype=np.float32,
+    )
     log.info("truth matrix %s, avg terms/protein %.1f", T.shape, T.nnz / len(acc))
 
     results = {}
@@ -129,16 +144,29 @@ def main():
     log.info("=== RUNG 1 RESULT (knn=%d, n=%d) ===", args.knn, len(acc))
     for name, r in results.items():
         delta = r["f_micro"] - dense_f
-        log.info("  %-18s f_micro=%.4f  delta_vs_dense=%+.4f  index=%.0f%% of dense",
-                 name, r["f_micro"], delta, 100 * r["index_ratio"])
+        log.info(
+            "  %-18s f_micro=%.4f  delta_vs_dense=%+.4f  index=%.0f%% of dense",
+            name,
+            r["f_micro"],
+            delta,
+            100 * r["index_ratio"],
+        )
 
     try:
         import mlflow
+
         mlflow.set_tracking_uri("http://127.0.0.1:5000")
         mlflow.set_experiment("sdr-knn-transfer")
         with mlflow.start_run(run_name="rung1-sparse-real-vs-dense"):
-            mlflow.log_params({"n_proteins": len(acc), "knn": args.knn, "seed": args.seed,
-                               "d": d, "k_sdr": str(args.k_sdr)})
+            mlflow.log_params(
+                {
+                    "n_proteins": len(acc),
+                    "knn": args.knn,
+                    "seed": args.seed,
+                    "d": d,
+                    "k_sdr": str(args.k_sdr),
+                }
+            )
             for name, r in results.items():
                 mlflow.log_metric("fmicro_" + name, r["f_micro"])
     except Exception as e:  # noqa: BLE001

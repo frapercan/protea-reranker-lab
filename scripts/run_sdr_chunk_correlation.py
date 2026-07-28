@@ -111,7 +111,8 @@ def load_chunked(
     salt = int(seed)
     log.info(
         "sampling ~%d candidate accessions from the annotation set (hash bucket 1/%d)",
-        n_pool, bucket,
+        n_pool,
+        bucket,
     )
     cur.execute(
         """
@@ -189,7 +190,9 @@ def load_chunked(
 # ---------------------------------------------------------------------------
 def dense_mean(acc_chunks: dict[str, np.ndarray], accessions: list[str]) -> np.ndarray:
     """Mean-pool the per-chunk vectors per protein -> (n, d) dense matrix (baseline)."""
-    return np.vstack([acc_chunks[a].mean(axis=0) for a in accessions]).astype(np.float32)
+    return np.vstack([acc_chunks[a].mean(axis=0) for a in accessions]).astype(
+        np.float32
+    )
 
 
 def chunk_sdr_bundle(
@@ -213,7 +216,9 @@ def chunk_sdr_bundle(
     for r, acc in enumerate(accessions):
         mat = acc_chunks[acc]
         votes = np.zeros(d, dtype=np.int32)
-        mass = np.zeros(d, dtype=np.float32)  # tie-break: summed magnitude of active coords
+        mass = np.zeros(
+            d, dtype=np.float32
+        )  # tie-break: summed magnitude of active coords
         for chunk in mat:
             act = kwta_active_set(chunk, k)
             votes[act] += 1
@@ -258,7 +263,9 @@ def run(args: argparse.Namespace) -> dict:
     n_chunks = np.array([acc_chunks[a].shape[0] for a in accessions])
     log.info(
         "chunk counts: mean=%.2f median=%d max=%d (single-chunk: %.1f%%)",
-        n_chunks.mean(), int(np.median(n_chunks)), int(n_chunks.max()),
+        n_chunks.mean(),
+        int(np.median(n_chunks)),
+        int(n_chunks.max()),
         100.0 * (n_chunks == 1).mean(),
     )
 
@@ -325,12 +332,22 @@ def run(args: argparse.Namespace) -> dict:
             # are both monotone in overlap -> identical Spearman, so C == D (metric is a no-op).
             _ord = np.argsort(-np.abs(dense), axis=1)[:, :k]
             _real = np.zeros_like(dense)
-            np.put_along_axis(_real, _ord, np.take_along_axis(dense, _ord, axis=1), axis=1)
-            _rho_b = spearmanr(cosine_dense(_real.astype(np.float32))[ii, jj], go_sim)[0]
+            np.put_along_axis(
+                _real, _ord, np.take_along_axis(dense, _ord, axis=1), axis=1
+            )
+            _rho_b = spearmanr(cosine_dense(_real.astype(np.float32))[ii, jj], go_sim)[
+                0
+            ]
             _bin = kwta_binarise(dense, k).astype(np.float32)
             _rho_c = spearmanr(cosine_dense(_bin)[ii, jj], go_sim)[0]
-            log.info("  LADDER[%s] k=%d:  A_full_real_cos=%.4f  B_topk_real_cos=%.4f  C_topk_bin_cos=%.4f",
-                     metric, k, rho_cos, _rho_b, _rho_c)
+            log.info(
+                "  LADDER[%s] k=%d:  A_full_real_cos=%.4f  B_topk_real_cos=%.4f  C_topk_bin_cos=%.4f",
+                metric,
+                k,
+                rho_cos,
+                _rho_b,
+                _rho_c,
+            )
 
         best_k = max(chunk_per_k, key=lambda kk: chunk_per_k[kk]["spearman"])
         best_chunk = chunk_per_k[best_k]["spearman"]
@@ -338,7 +355,12 @@ def run(args: argparse.Namespace) -> dict:
         verdict = "BEATS" if gap >= 0 else ("CLOSES" if gap >= -0.02 else "STILL-BELOW")
         log.info(
             "  GATE[%s]: best chunkSDR rho=%.4f (k=%d) vs cosine %.4f -> gap %+.4f -> %s",
-            metric, best_chunk, best_k, rho_cos, gap, verdict,
+            metric,
+            best_chunk,
+            best_k,
+            rho_cos,
+            gap,
+            verdict,
         )
 
         results[metric] = {
@@ -391,7 +413,9 @@ def write_artifacts(result: dict, out_dir: Path) -> list[Path]:
     return paths
 
 
-def log_to_mlflow(args: argparse.Namespace, result: dict, artifacts: list[Path]) -> str | None:
+def log_to_mlflow(
+    args: argparse.Namespace, result: dict, artifacts: list[Path]
+) -> str | None:
     if not os.environ.get("MLFLOW_TRACKING_URI"):
         log.warning("MLFLOW_TRACKING_URI not set; skipping MLflow logging")
         return None
@@ -402,29 +426,41 @@ def log_to_mlflow(args: argparse.Namespace, result: dict, artifacts: list[Path])
         import mlflow
 
         mlflow.set_experiment(EXPERIMENT)
-        run_name = "sdr-chunk-bundle-multichunk" if args.multi_chunk_only else "sdr-chunk-bundle"
+        run_name = (
+            "sdr-chunk-bundle-multichunk"
+            if args.multi_chunk_only
+            else "sdr-chunk-bundle"
+        )
         with mlflow.start_run(run_name=run_name) as active:
             mlflow.set_tag("multi_chunk_only", str(args.multi_chunk_only))
-            mlflow.log_params({
-                "plm": "ankh-base",
-                "embedding_config": EMB_CONFIG,
-                "annotation_set": ANN_SET,
-                "window": "v227-t0",
-                "n_proteins": result["n_proteins"],
-                "n_pairs": result["n_pairs"],
-                "kwta_k": ",".join(str(k) for k in args.kwta_k),
-                "seed": args.seed,
-                "embedding_dim": result["embedding_dim"],
-                "bundle": "sparsify-then-bundle (per-chunk k-WTA -> top-k vote)",
-                "chunk_count_mean": round(result["chunk_count_mean"], 3),
-                "single_chunk_frac": round(result["single_chunk_frac"], 4),
-            })
+            mlflow.log_params(
+                {
+                    "plm": "ankh-base",
+                    "embedding_config": EMB_CONFIG,
+                    "annotation_set": ANN_SET,
+                    "window": "v227-t0",
+                    "n_proteins": result["n_proteins"],
+                    "n_pairs": result["n_pairs"],
+                    "kwta_k": ",".join(str(k) for k in args.kwta_k),
+                    "seed": args.seed,
+                    "embedding_dim": result["embedding_dim"],
+                    "bundle": "sparsify-then-bundle (per-chunk k-WTA -> top-k vote)",
+                    "chunk_count_mean": round(result["chunk_count_mean"], 3),
+                    "single_chunk_frac": round(result["single_chunk_frac"], 4),
+                }
+            )
             for metric, m in result["per_metric"].items():
-                mlflow.log_metric(f"spearman_cosine_go_{metric}", m["spearman_cosine_go"])
+                mlflow.log_metric(
+                    f"spearman_cosine_go_{metric}", m["spearman_cosine_go"]
+                )
                 for k, v in m["chunk_per_k"].items():
-                    mlflow.log_metric(f"spearman_chunksdr_go_{metric}_k{k}", v["spearman"])
+                    mlflow.log_metric(
+                        f"spearman_chunksdr_go_{metric}_k{k}", v["spearman"]
+                    )
                 for k, v in m["control_per_k"].items():
-                    mlflow.log_metric(f"spearman_sdra_ctrl_go_{metric}_k{k}", v["spearman"])
+                    mlflow.log_metric(
+                        f"spearman_sdra_ctrl_go_{metric}_k{k}", v["spearman"]
+                    )
                 mlflow.log_metric(f"best_chunksdr_rho_{metric}", m["best_chunksdr_rho"])
                 mlflow.log_metric(f"gap_vs_cosine_{metric}", m["gap_vs_cosine"])
                 mlflow.set_tag(f"verdict_{metric}", m["verdict"])
@@ -443,17 +479,28 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    p.add_argument("--dsn", default="host=localhost dbname=protea user=protea password=protea")
-    p.add_argument("--obo", default="~/Thesis2/protea-lafa-knn/lafa_t0_Sep_2025/go-basic.obo")
+    p.add_argument(
+        "--dsn", default="host=localhost dbname=protea user=protea password=protea"
+    )
+    p.add_argument(
+        "--obo", default="~/Thesis2/protea-lafa-knn/lafa_t0_Sep_2025/go-basic.obo"
+    )
     p.add_argument("--n-proteins", type=int, default=5000)
     p.add_argument("--n-pairs", type=int, default=200_000)
     p.add_argument("--kwta-k", type=int, nargs="+", default=[32, 64, 128])
-    p.add_argument("--with-control", action="store_true", default=True,
-                   help="also run the SDR-A control (k-WTA on the mean)")
+    p.add_argument(
+        "--with-control",
+        action="store_true",
+        default=True,
+        help="also run the SDR-A control (k-WTA on the mean)",
+    )
     p.add_argument("--no-control", dest="with_control", action="store_false")
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--multi-chunk-only", action="store_true",
-                   help="restrict to proteins with >=2 chunks (where bundling is non-trivial)")
+    p.add_argument(
+        "--multi-chunk-only",
+        action="store_true",
+        help="restrict to proteins with >=2 chunks (where bundling is non-trivial)",
+    )
     p.add_argument("--out-dir", default=None)
     p.add_argument("--no-mlflow", action="store_true")
     return p.parse_args(argv)
@@ -467,18 +514,26 @@ def main(argv: list[str] | None = None) -> int:
     run_id = None if args.no_mlflow else log_to_mlflow(args, result, artifacts)
 
     print("\n=== SDR-chunk readout (sparsify-then-BUNDLE) ===")
-    print(f"proteins={result['n_proteins']}  pairs={result['n_pairs']}  "
-          f"dim={result['embedding_dim']}  chunks/prot mean={result['chunk_count_mean']:.2f} "
-          f"single-chunk={100*result['single_chunk_frac']:.1f}%")
+    print(
+        f"proteins={result['n_proteins']}  pairs={result['n_pairs']}  "
+        f"dim={result['embedding_dim']}  chunks/prot mean={result['chunk_count_mean']:.2f} "
+        f"single-chunk={100 * result['single_chunk_frac']:.1f}%"
+    )
     for metric, m in result["per_metric"].items():
         print(f"\n[{metric.upper()}]")
-        print(f"  dense cosine            Spearman vs GO = {m['spearman_cosine_go']:.4f}")
+        print(
+            f"  dense cosine            Spearman vs GO = {m['spearman_cosine_go']:.4f}"
+        )
         for k, v in m["chunk_per_k"].items():
             print(f"  chunk-SDR Tanimoto k={k:<4} Spearman vs GO = {v['spearman']:.4f}")
         for k, v in m["control_per_k"].items():
-            print(f"  SDR-A ctrl Tanimoto k={k:<4} Spearman vs GO = {v['spearman']:.4f}")
-        print(f"  GATE: best chunk-SDR rho={m['best_chunksdr_rho']:.4f} (k={m['best_k']}) "
-              f"gap vs cosine {m['gap_vs_cosine']:+.4f} -> {m['verdict']}")
+            print(
+                f"  SDR-A ctrl Tanimoto k={k:<4} Spearman vs GO = {v['spearman']:.4f}"
+            )
+        print(
+            f"  GATE: best chunk-SDR rho={m['best_chunksdr_rho']:.4f} (k={m['best_k']}) "
+            f"gap vs cosine {m['gap_vs_cosine']:+.4f} -> {m['verdict']}"
+        )
     if run_id:
         print(f"\nMLflow run: {run_id}")
     print(f"artifacts -> {out_dir}")
