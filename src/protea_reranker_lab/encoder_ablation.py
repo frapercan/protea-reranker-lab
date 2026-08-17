@@ -76,6 +76,9 @@ class ArmSpec:
     # What the code cosine is regressed onto. "lin" is the real target; the other
     # two are nulls that keep the encoder, the pairs and the pool identical and
     # change only what it is asked to predict. See ``substitute_target``.
+    # "lin" is the shipped target. "bpo" restricts it to the aspect the frontier
+    # is in, "jaccard" drops the information weighting, and "marginal" and
+    # "shuffled" are nulls. See ``build_target``.
     target: str = "lin"
 
 
@@ -260,6 +263,80 @@ def _pca(R: np.ndarray, Q: np.ndarray, k: int,
     return p.transform(R).astype(np.float32), p.transform(Q).astype(np.float32)
 
 
+def mica_aspect_histogram(
+    closures: list[frozenset[str]], ic: dict[str, float],
+    pairs: list[tuple[int, int]], dag: GoDag,
+) -> dict[str, int]:
+    """Which aspect the most informative common ancestor belongs to, per pair.
+
+    A pre-flight, not an arm. ``_max_common_ancestor_ic`` applies no aspect
+    filter, while molecular-function terms carry higher information content than
+    biological-process ones because the branch is shallower and better annotated.
+    So the supervision may be dominated by the aspect the campaign cares least
+    about, and the encoder would be optimised for it without anything saying so.
+
+    Costs one pass over the pairs and answers whether the ``bpo`` arm is worth
+    fitting at all.
+    """
+    counts: dict[str, int] = {"P": 0, "F": 0, "C": 0, "none": 0}
+    for i, j in pairs:
+        common = closures[i] & closures[j]
+        if not common:
+            counts["none"] += 1
+            continue
+        best = max(common, key=lambda term: ic.get(term, 0.0))
+        counts[dag.aspect.get(best, "none")] = counts.get(dag.aspect.get(best, "none"), 0) + 1
+    return counts
+
+
+def _jaccard_pairwise(
+    closures: list[frozenset[str]], pairs: list[tuple[int, int]]
+) -> np.ndarray:
+    """Overlap of two propagated closures, with every term weighted equally.
+
+    Prices metric alignment. cafaeval weights by information accretion and Lin
+    weights by information content, and both come from the same frequency table,
+    so the learned arm is the only one that was ever told the metric's weights.
+    An arm trained on an unweighted target and scored by the weighted metric says
+    how much of the gain was that alignment rather than the representation.
+    """
+    out = np.empty(len(pairs), dtype=np.float32)
+    for n, (i, j) in enumerate(pairs):
+        a, b = closures[i], closures[j]
+        union = len(a | b)
+        out[n] = (len(a & b) / union) if union else 0.0
+    return out
+
+
+def _restrict_to_aspect(closures: list[frozenset[str]], dag: GoDag, aspect: str) -> list[frozenset[str]]:
+    """Drop every term outside one aspect, so the target speaks only about it."""
+    return [frozenset(t for t in c if dag.aspect.get(t) == aspect) for c in closures]
+
+
+def build_target(
+    closures: list[frozenset[str]], ic: dict[str, float], pairs: list[tuple[int, int]],
+    bic: list[float], dag: GoDag, target: str, rng: np.random.Generator,
+) -> np.ndarray:
+    """The scalar the code cosine is regressed onto, for one arm.
+
+    Everything except the target is held identical across arms: the same pool,
+    the same pairs, the same seed. So a difference between two arms is a
+    difference in what was asked for and nothing else.
+    """
+    if target == "jaccard":
+        return _jaccard_pairwise(closures, pairs)
+    if target == "bpo":
+        # The information content has to be recomputed on the restricted
+        # closures. Reusing the full-ontology IC would weight biological-process
+        # terms by frequencies that counted molecular-function annotations too.
+        restricted = _restrict_to_aspect(closures, dag, "P")
+        ic_p = information_content(restricted, dag)
+        bic_p = [max((ic_p.get(t, 0.0) for t in c), default=0.0) for c in restricted]
+        return np.asarray(lin_pairwise(restricted, ic_p, pairs, bic_p), dtype=np.float32)
+    lin = np.asarray(lin_pairwise(closures, ic, pairs, bic), dtype=np.float32)
+    return substitute_target(lin, pairs, bic, target, rng)
+
+
 def substitute_target(
     lin: np.ndarray, pairs: list[tuple[int, int]], bic: list[float],
     target: str, rng: np.random.Generator,
@@ -322,9 +399,9 @@ def fit_encoder(R: np.ndarray, closures: list[frozenset[str]], dag: GoDag, arm: 
             for j in nbr[a_i]:
                 pairs.append((int(anchor), int(j)) if anchor < j else (int(j), int(anchor)))
 
-    lin = np.asarray(lin_pairwise(closures, ic, pairs, bic), dtype=np.float32)
-    lin = substitute_target(lin, pairs, bic, arm.target, rng)
-    y = torch.tensor(lin, device=dev)
+    y = torch.tensor(
+        build_target(closures, ic, pairs, bic, dag, arm.target, rng), device=dev
+    )
     ti = torch.tensor([p[0] for p in pairs], device=dev)
     tj = torch.tensor([p[1] for p in pairs], device=dev)
     enc = nn.Linear(d, arm.dict_dim).to(dev)
