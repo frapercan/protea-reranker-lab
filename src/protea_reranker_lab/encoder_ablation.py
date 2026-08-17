@@ -36,9 +36,9 @@ import numpy as np
 # under the mock. This matches the sibling train/universal_train modules.
 from protea_reranker_lab.band_registry_bridge import resolve_band_artifacts
 from protea_reranker_lab.native_boosters_mlflow import MlflowLogger
+from protea_reranker_lab import host_paths
 from protea_reranker_lab.sdr import GoDag, information_content, lin_pairwise, propagate
 from protea_reranker_lab.universal_runner import (
-    _DEFAULT_PROTEA_PYTHON,
     _run_cafaeval,
     ASPECT_TO_NS,
 )
@@ -46,6 +46,16 @@ from protea_reranker_lab.universal_runner import (
 if TYPE_CHECKING:  # annotations only; not evaluated at runtime (from __future__ import annotations)
     import scipy.sparse as sp
     import torch.nn as nn
+
+
+class CellNotScored(RuntimeError):
+    """A category-by-aspect cell yielded no metric, so the run has no result.
+
+    Distinct from a low score. This is raised when the scorer failed, timed out,
+    wrote nothing, or wrote output without the aspect asked for, all of which
+    used to be recorded as an absent cell and then averaged over.
+    """
+
 
 log = logging.getLogger("encoder-ablation")
 
@@ -84,8 +94,12 @@ class EncoderAblationSpec:
     embedding_config_id: str = "500a0c59-be09-424d-9d51-b7997629c95a"  # esm2_150m, 640d, smallest
     annotation_set_id: str = "c905dffa-a5ce-430b-b17b-503e88666adb"     # GOA v227, t0
     band: str = "v227"
-    gt_dir: Path = field(default_factory=lambda: Path(
-        "/home/frapercan/Thesis2/CAFA_forever/data/releases/Sep_2025_Mar_2026"))
+    # Left unset by default and resolved at run start by ``resolve_host_paths``.
+    # A default pointing at one machine's home directory is what let this module
+    # run to completion reporting nothing after the reinstall: the path was
+    # absent, the scorer subprocess failed, and the failure became a None metric
+    # rather than a stop. See ``host_paths``.
+    gt_dir: Path | None = None
     ref_n: int = 60000
     knn: int = 30
     epochs: int = 150
@@ -100,16 +114,59 @@ class EncoderAblationSpec:
     toi_path: Path | None = None
     pk_known_path: Path | None = None
     out_dir: Path | None = None
-    protea_python: Path = field(default_factory=lambda: Path(_DEFAULT_PROTEA_PYTHON))
+    protea_python: Path | None = None
     mlflow_experiment: str = "encoder-ablation"
 
+    def resolve_host_paths(self) -> None:
+        """Fill in any unset host location, raising before any work is done.
+
+        Called once at the top of a run. Everything it resolves is needed only
+        at scoring time, which is the end, so resolving it here converts a
+        failure that used to surface as an empty metrics table into one that
+        surfaces in the first second and names the variable to set.
+        """
+        if self.gt_dir is None:
+            self.gt_dir = host_paths.ground_truth_dir()
+        if self.protea_python is None:
+            self.protea_python = host_paths.protea_python()
+
+    def require_gt_dir(self) -> Path:
+        """The ground-truth directory, or a clear failure if nobody resolved it.
+
+        The fields are optional so that constructing a spec never touches the
+        filesystem, which keeps them testable. These accessors are where the
+        optionality stops, so a caller that forgot ``resolve_host_paths`` gets
+        that sentence rather than a ``None`` travelling into a subprocess.
+        """
+        if self.gt_dir is None:
+            raise RuntimeError("gt_dir is unset: call resolve_host_paths() before running")
+        return self.gt_dir
+
+    def require_protea_python(self) -> Path:
+        """The scorer's interpreter, or a clear failure if nobody resolved it."""
+        if self.protea_python is None:
+            raise RuntimeError("protea_python is unset: call resolve_host_paths() before running")
+        return self.protea_python
+
     def spec_hash(self) -> str:
+        """Identity of this run, and therefore the directory its results are written to.
+
+        The harness fields are in the payload because the output directory is
+        keyed on this hash. Without them a plain run and an official-harness run
+        of otherwise identical settings hash the same, write to the same
+        directory, and the second silently destroys the first. They are
+        different experiments producing different numbers, so they are different
+        identities.
+        """
         import hashlib
         payload = json.dumps({
             "emb": self.embedding_config_id, "ann": self.annotation_set_id, "band": self.band,
             "ref_n": self.ref_n, "knn": self.knn, "epochs": self.epochs,
             "train_pairs": self.train_pairs, "seed": self.seed,
             "arms": [a.__dict__ for a in self.arms],
+            "official_harness": self.official_harness,
+            "toi": str(self.toi_path) if self.toi_path else None,
+            "pk_known": str(self.pk_known_path) if self.pk_known_path else None,
         }, sort_keys=True)
         return hashlib.sha256(payload.encode()).hexdigest()[:12]
 
@@ -367,10 +424,16 @@ def _run_cafaeval_official(cell: str, work_dir: Path, obo_path: Path, ia_path: P
     try:
         subprocess.run([str(spec.protea_python), "-c", driver], timeout=1800, check=True,
                        capture_output=True, text=True)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
-        return {"error": str(exc)[:200]}
+    except subprocess.CalledProcessError as exc:
+        # str(CalledProcessError) is only "returned non-zero exit status N", so
+        # truncating it discarded the one thing that says what went wrong. The
+        # scorer reports missing files and unreadable ontologies on stderr.
+        detail = (exc.stderr or exc.stdout or "").strip()
+        return {"error": f"cafaeval exited {exc.returncode}: {detail[-800:] or 'no output'}"}
+    except subprocess.TimeoutExpired:
+        return {"error": "cafaeval timed out after 1800s"}
     if not out_json.exists():
-        return {"error": "cafaeval produced no output"}
+        return {"error": f"cafaeval wrote no output at {out_json}"}
     raw = json.loads(out_json.read_text())
     ns = ASPECT_TO_NS.get(cell.split("-", 1)[1])
     for row in raw.get("f_micro_w", []):
@@ -387,11 +450,25 @@ def _load_data(spec: EncoderAblationSpec, dag: GoDag, queries: list[str], rng):
     conn = psycopg2.connect(spec.dsn)
     cur = conn.cursor()
     qset = set(queries)
+    # ORDER BY is load-bearing, not tidiness. Without it Postgres returns this
+    # DISTINCT in whatever order the hash aggregate produces, which varies
+    # between runs, so shuffling with a fixed seed permuted the positions of a
+    # differently ordered list and selected a different reference pool every
+    # time. The seed only makes a run reproducible if what it shuffles is
+    # ordered first.
     cur.execute(
         """SELECT DISTINCT protein_accession FROM protein_go_annotation
-           WHERE annotation_set_id = %s AND (hashtextextended(protein_accession, 42) %% %s) = 0""",
+           WHERE annotation_set_id = %s AND (hashtextextended(protein_accession, 42) %% %s) = 0
+           ORDER BY protein_accession""",
         (spec.annotation_set_id, max(2, 556000 // (spec.ref_n * 2))))
     ref_accs = [a for (a,) in cur.fetchall() if a not in qset]
+    if len(ref_accs) < spec.ref_n:
+        # The modulo divisor is derived from ref_n, and at large ref_n the
+        # integer division floors to zero and max() pins it at 2, capping the
+        # candidate pool near half the corpus however many references are asked
+        # for. Say so rather than silently training on fewer.
+        log.warning("reference pool is %d, short of the requested ref_n=%d",
+                    len(ref_accs), spec.ref_n)
     rng.shuffle(ref_accs)
     ref_accs = ref_accs[:spec.ref_n]
     ref_emb = pull_mean(cur, ref_accs, spec.embedding_config_id)
@@ -451,11 +528,21 @@ def _eval_arm_cells(work: Path, cells: dict, obo_path: Path, ia_path: Path,
                         f.write(f"{acc}\t{term}\n")
             m = _run_cafaeval_official(cell, work, obo_path, ia_path, excl, spec)
         else:
-            m = _run_cafaeval(cell, work, obo_path, ia_path, spec.protea_python)
+            m = _run_cafaeval(cell, work, obo_path, ia_path, spec.require_protea_python())
         fw = m.get("f_micro_w") if isinstance(m, dict) else None
-        if isinstance(fw, (int, float)):
-            cell_fw[cell] = float(fw)
-        log.info("  %-7s f_micro_w=%s", cell, f"{fw:.4f}" if isinstance(fw, (int, float)) else "NA")
+        if not isinstance(fw, (int, float)):
+            # Previously this logged NA, omitted the cell and carried on, so a
+            # run whose scorer never worked completed with an empty results
+            # table and wrote status ok. A cell that cannot be scored is a
+            # failed run, not a missing value: the arms are compared against
+            # each other and a silently absent cell changes every mean it was
+            # supposed to enter.
+            reason = m.get("error") if isinstance(m, dict) else f"unexpected result {m!r}"
+            raise CellNotScored(
+                f"cell {cell!r} produced no f_micro_w: {reason or 'aspect row absent from output'}"
+            )
+        cell_fw[cell] = float(fw)
+        log.info("  %-7s f_micro_w=%.4f", cell, fw)
     return cell_fw
 
 
@@ -468,8 +555,13 @@ def train_and_save_encoder(spec: EncoderAblationSpec, arm: ArmSpec, out_path: Pa
     """
     import torch
 
+    spec.resolve_host_paths()
+    # Seeds torch as well as numpy. Only numpy was seeded, so two arms differing
+    # in their objective also differed in their initialisation, and a repeated
+    # run of the same arm did not reproduce.
+    torch.manual_seed(spec.seed)
     obo_path, _ = resolve_band_artifacts(spec.band)
-    cells = load_gt(spec.gt_dir)
+    cells = load_gt(spec.require_gt_dir())
     queries = sorted({a for d in cells.values() for a in d["proteins"]})
     dag = GoDag.from_obo(obo_path)
     R, _Q, ref_clo, _q = _load_data(spec, dag, queries, np.random.default_rng(spec.seed))
@@ -490,14 +582,30 @@ def train_and_save_encoder(spec: EncoderAblationSpec, arm: ArmSpec, out_path: Pa
     return meta
 
 
-def run_encoder_ablation(spec: EncoderAblationSpec) -> dict:
-    """Run the ablation: pull data, build each arm, KNN-transfer, cafaeval, collect deltas."""
+def _prepare_run(spec: EncoderAblationSpec) -> tuple[Path, Path, Path]:
+    """Resolve every host location and seed every generator, before anything is written.
+
+    Ordered so a run that cannot score fails in the first second rather than
+    after the fits, and leaves no half-built output directory behind to be
+    mistaken later for a result.
+    """
+    import torch
+
+    spec.resolve_host_paths()
+    torch.manual_seed(spec.seed)
     out_dir = Path(spec.out_dir or (Path("runs") / "encoder_ablation" / spec.spec_hash()))
     out_dir.mkdir(parents=True, exist_ok=True)
     obo_path, ia_path = resolve_band_artifacts(spec.band)
-    log.info("spec=%s hash=%s | OBO=%s IA=%s", spec.name, spec.spec_hash(), obo_path.name, ia_path.name)
+    log.info("spec=%s hash=%s | OBO=%s IA=%s",
+             spec.name, spec.spec_hash(), obo_path.name, ia_path.name)
+    return out_dir, obo_path, ia_path
 
-    cells = load_gt(spec.gt_dir)
+
+def run_encoder_ablation(spec: EncoderAblationSpec) -> dict:
+    """Run the ablation: pull data, build each arm, KNN-transfer, cafaeval, collect deltas."""
+    out_dir, obo_path, ia_path = _prepare_run(spec)
+
+    cells = load_gt(spec.require_gt_dir())
     queries = sorted({a for d in cells.values() for a in d["proteins"]})
     dag = GoDag.from_obo(obo_path)
     R, Q, ref_clo, q_accs = _load_data(spec, dag, queries, np.random.default_rng(spec.seed))
