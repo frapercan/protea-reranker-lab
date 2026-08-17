@@ -676,11 +676,6 @@ def _prepare_run(spec: EncoderAblationSpec) -> tuple[Path, Path, Path]:
     return out_dir, obo_path, ia_path
 
 
-def run_encoder_ablation(spec: EncoderAblationSpec) -> dict:
-    """Run the ablation: pull data, build each arm, KNN-transfer, cafaeval, collect deltas."""
-    out_dir, obo_path, ia_path = _prepare_run(spec)
-
-
 def _report_split(
     spec: EncoderAblationSpec, ref_clo: list, q_accs: list, queries: list, R: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
