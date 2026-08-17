@@ -38,7 +38,7 @@ from protea_reranker_lab.band_registry_bridge import resolve_band_artifacts
 from protea_reranker_lab.native_boosters_mlflow import MlflowLogger
 from protea_reranker_lab import host_paths
 from protea_reranker_lab.objectives import TargetInputs, build_target, mica_aspect_histogram
-from protea_reranker_lab.sdr import GoDag, information_content, lin_pairwise, propagate
+from protea_reranker_lab.sdr import GoDag, information_content, propagate
 from protea_reranker_lab.universal_runner import (
     _run_cafaeval,
     ASPECT_TO_NS,
@@ -676,6 +676,31 @@ def _prepare_run(spec: EncoderAblationSpec) -> tuple[Path, Path, Path]:
     return out_dir, obo_path, ia_path
 
 
+def _report_supervision(
+    spec: EncoderAblationSpec, ref_clo: list[frozenset[str]], dag: GoDag
+) -> dict[str, int]:
+    """Say which aspect the supervision is actually about, before any arm is fit.
+
+    The most informative common ancestor is chosen with no aspect filter, and
+    molecular-function terms carry higher information content than
+    biological-process ones because that branch is shallower and better
+    annotated. So an encoder can be optimised for the aspect the campaign cares
+    least about while nothing in the output says so.
+
+    Sampled rather than exhaustive: this is a property of the pool, and a sample
+    of pairs estimates it to more precision than the decision needs.
+    """
+    rng = np.random.default_rng(spec.seed)
+    ic = information_content(ref_clo, dag)
+    bic = [max((ic.get(t, 0.0) for t in c), default=0.0) for c in ref_clo]
+    pairs = sample_pairs(len(ref_clo), min(spec.train_pairs, 50_000), rng)
+    hist = mica_aspect_histogram(TargetInputs(ref_clo, ic, pairs, bic, dag))
+    total = sum(hist.values()) or 1
+    log.info("supervision by aspect over %d sampled pairs: %s", total,
+             " ".join(f"{k}={v} ({100*v/total:.1f}%)" for k, v in hist.items()))
+    return hist
+
+
 def _report_split(
     spec: EncoderAblationSpec, ref_clo: list, q_accs: list, queries: list, R: np.ndarray
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -703,6 +728,7 @@ def run_encoder_ablation(spec: EncoderAblationSpec) -> dict:
     dag = GoDag.from_obo(obo_path)
     R, Q, ref_clo, q_accs = _load_data(spec, dag, queries, np.random.default_rng(spec.seed))
     fit_rows, index_rows = _report_split(spec, ref_clo, q_accs, queries, R)
+    supervision = _report_supervision(spec, ref_clo, dag)
     terms = sorted({t for c in ref_clo for t in c})
     tix = {t: i for i, t in enumerate(terms)}
     query_ix = {a: i for i, a in enumerate(q_accs)}
@@ -744,6 +770,7 @@ def run_encoder_ablation(spec: EncoderAblationSpec) -> dict:
         "embedding_config_id": spec.embedding_config_id, "band": spec.band,
         "reference_n": len(ref_clo), "queries": len(q_accs), "dim": int(R.shape[1]),
         "fit_index_mode": spec.fit_index_mode,
+        "supervision_by_aspect": supervision,
         "fit_n": len(fit_rows), "index_n": len(index_rows),
         "results": results,
     }
