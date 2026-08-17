@@ -582,18 +582,28 @@ def train_and_save_encoder(spec: EncoderAblationSpec, arm: ArmSpec, out_path: Pa
     return meta
 
 
-def run_encoder_ablation(spec: EncoderAblationSpec) -> dict:
-    """Run the ablation: pull data, build each arm, KNN-transfer, cafaeval, collect deltas."""
+def _prepare_run(spec: EncoderAblationSpec) -> tuple[Path, Path, Path]:
+    """Resolve every host location and seed every generator, before anything is written.
+
+    Ordered so a run that cannot score fails in the first second rather than
+    after the fits, and leaves no half-built output directory behind to be
+    mistaken later for a result.
+    """
     import torch
 
-    # Resolved before the output directory is made, so a run that cannot score
-    # leaves no half-built artifact behind to be mistaken for a result.
     spec.resolve_host_paths()
     torch.manual_seed(spec.seed)
     out_dir = Path(spec.out_dir or (Path("runs") / "encoder_ablation" / spec.spec_hash()))
     out_dir.mkdir(parents=True, exist_ok=True)
     obo_path, ia_path = resolve_band_artifacts(spec.band)
-    log.info("spec=%s hash=%s | OBO=%s IA=%s", spec.name, spec.spec_hash(), obo_path.name, ia_path.name)
+    log.info("spec=%s hash=%s | OBO=%s IA=%s",
+             spec.name, spec.spec_hash(), obo_path.name, ia_path.name)
+    return out_dir, obo_path, ia_path
+
+
+def run_encoder_ablation(spec: EncoderAblationSpec) -> dict:
+    """Run the ablation: pull data, build each arm, KNN-transfer, cafaeval, collect deltas."""
+    out_dir, obo_path, ia_path = _prepare_run(spec)
 
     cells = load_gt(spec.require_gt_dir())
     queries = sorted({a for d in cells.values() for a in d["proteins"]})
