@@ -37,7 +37,8 @@ import numpy as np
 from protea_reranker_lab.band_registry_bridge import resolve_band_artifacts
 from protea_reranker_lab.native_boosters_mlflow import MlflowLogger
 from protea_reranker_lab import host_paths
-from protea_reranker_lab.sdr import GoDag, information_content, lin_pairwise, propagate
+from protea_reranker_lab.objectives import TargetInputs, build_target, mica_aspect_histogram
+from protea_reranker_lab.sdr import GoDag, information_content, propagate
 from protea_reranker_lab.universal_runner import (
     _run_cafaeval,
     ASPECT_TO_NS,
@@ -73,6 +74,13 @@ class ArmSpec:
     dict_dim: int = 2048
     top_k: int = 128
     objective: str = "cosine-lin"  # learned only: "cosine-lin" | "hard-neg"
+    # What the code cosine is regressed onto. "lin" is the real target; the other
+    # two are nulls that keep the encoder, the pairs and the pool identical and
+    # change only what it is asked to predict. See ``substitute_target``.
+    # "lin" is the shipped target. "bpo" restricts it to the aspect the frontier
+    # is in, "jaccard" drops the information weighting, and "marginal" and
+    # "shuffled" are nulls. See ``build_target``.
+    target: str = "lin"
 
 
 def _default_arms() -> list[ArmSpec]:
@@ -101,6 +109,12 @@ class EncoderAblationSpec:
     # rather than a stop. See ``host_paths``.
     gt_dir: Path | None = None
     ref_n: int = 60000
+    # "shared" reproduces the shipped condition: the encoder is fit on the same
+    # proteins it then retrieves from. "disjoint" fits on one half and retrieves
+    # from the other. BOTH halve the pool, so the two arms differ only in
+    # whether the index was seen at fit time; comparing a disjoint half against
+    # a shared whole would measure index size as well.
+    fit_index_mode: str = "shared"
     knn: int = 30
     epochs: int = 150
     train_pairs: int = 300_000
@@ -163,6 +177,7 @@ class EncoderAblationSpec:
             "emb": self.embedding_config_id, "ann": self.annotation_set_id, "band": self.band,
             "ref_n": self.ref_n, "knn": self.knn, "epochs": self.epochs,
             "train_pairs": self.train_pairs, "seed": self.seed,
+            "fit_index_mode": self.fit_index_mode,
             "arms": [a.__dict__ for a in self.arms],
             "official_harness": self.official_harness,
             "toi": str(self.toi_path) if self.toi_path else None,
@@ -240,10 +255,12 @@ def load_gt(gt_dir: Path) -> dict[tuple[str, str], dict]:
 
 
 # --------------------------------------------------------------------------- representations
-def _pca(R: np.ndarray, Q: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray]:
-    """Unsupervised PCA(k) fit on the reference pool (transductive), applied to ref + query."""
+def _pca(R: np.ndarray, Q: np.ndarray, k: int,
+         fit_rows: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """Unsupervised PCA(k) fit on ``fit_rows`` of the reference pool, applied to ref + query."""
     from sklearn.decomposition import PCA
-    p = PCA(n_components=min(k, R.shape[1], R.shape[0]), random_state=0).fit(R)
+    fit_on = R if fit_rows is None else R[fit_rows]
+    p = PCA(n_components=min(k, R.shape[1], fit_on.shape[0]), random_state=0).fit(fit_on)
     return p.transform(R).astype(np.float32), p.transform(Q).astype(np.float32)
 
 
@@ -272,7 +289,10 @@ def fit_encoder(R: np.ndarray, closures: list[frozenset[str]], dag: GoDag, arm: 
             for j in nbr[a_i]:
                 pairs.append((int(anchor), int(j)) if anchor < j else (int(j), int(anchor)))
 
-    y = torch.tensor(np.asarray(lin_pairwise(closures, ic, pairs, bic), dtype=np.float32), device=dev)
+    y = torch.tensor(
+        build_target(TargetInputs(closures, ic, pairs, bic, dag), arm.target, rng),
+        device=dev,
+    )
     ti = torch.tensor([p[0] for p in pairs], device=dev)
     tj = torch.tensor([p[1] for p in pairs], device=dev)
     enc = nn.Linear(d, arm.dict_dim).to(dev)
@@ -305,23 +325,65 @@ def apply_encoder(enc: nn.Linear, X: np.ndarray, top_k: int) -> np.ndarray:
     return topk_real(Z, top_k)
 
 
+@dataclass(frozen=True)
+class ArmData:
+    """The pool an arm is built over. These four are never used apart."""
+
+    R: np.ndarray
+    Q: np.ndarray
+    closures: list[frozenset[str]]
+    dag: GoDag
+
+
 def _train_encoder(
-    R: np.ndarray, Q: np.ndarray, closures: list[frozenset[str]], dag: GoDag, arm: ArmSpec,
-    spec: EncoderAblationSpec,
+    data: ArmData, arm: ArmSpec, spec: EncoderAblationSpec,
+    fit_rows: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Train + apply: return top-k real codes for ref + query (the ablation's learned arm)."""
-    enc = fit_encoder(R, closures, dag, arm, spec)
-    return apply_encoder(enc, R, arm.top_k), apply_encoder(enc, Q, arm.top_k)
+    """Train on ``fit_rows``, apply to every reference and query.
+
+    Separating what the encoder is FIT on from what it is APPLIED to is the whole
+    of the disjointness gate. With ``fit_rows`` covering the rows retrieval then
+    draws from, the encoder has seen every donor it will be scored against, which
+    is the shipped condition and is not a generalisation result.
+    """
+    R, closures = data.R, data.closures
+    fit_R = R if fit_rows is None else R[fit_rows]
+    fit_clo = closures if fit_rows is None else [closures[i] for i in fit_rows]
+    enc = fit_encoder(fit_R, fit_clo, data.dag, arm, spec)
+    return apply_encoder(enc, R, arm.top_k), apply_encoder(enc, data.Q, arm.top_k)
 
 
-def _build_arm(arm: ArmSpec, R: np.ndarray, Q: np.ndarray, closures: list[frozenset[str]], dag: GoDag,
-               spec: EncoderAblationSpec) -> tuple[np.ndarray, np.ndarray]:
+def split_fit_index(n: int, mode: str, seed: int) -> tuple[np.ndarray, np.ndarray]:
+    """Rows the encoder is fit on, and rows retrieval draws its donors from.
+
+    BOTH halve the pool, deliberately. The obvious version of this gate fits on
+    half and retrieves from the other half, then compares against the shipped
+    condition which fits and retrieves on the whole. That comparison confounds
+    disjointness with index size: the disjoint arm would have half the donors to
+    choose from, and a smaller bank retrieves worse for reasons that have nothing
+    to do with what the encoder saw.
+
+    So ``shared`` fits on A and retrieves from A, ``disjoint`` fits on A and
+    retrieves from B, and the two differ in exactly one thing.
+    """
+    rng = np.random.default_rng(seed)
+    order = rng.permutation(n)
+    a, b = order[: n // 2], order[n // 2 :]
+    if mode == "shared":
+        return a, a
+    if mode == "disjoint":
+        return a, b
+    raise ValueError(f"unknown fit_index_mode {mode!r}; choose shared or disjoint")
+
+
+def _build_arm(arm: ArmSpec, data: ArmData, spec: EncoderAblationSpec,
+               fit_rows: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
     if arm.kind == "dense":
-        return R, Q
+        return data.R, data.Q
     if arm.kind == "pca":
-        return _pca(R, Q, arm.pca_dim)
+        return _pca(data.R, data.Q, arm.pca_dim, fit_rows)
     if arm.kind == "learned":
-        return _train_encoder(R, Q, closures, dag, arm, spec)
+        return _train_encoder(data, arm, spec, fit_rows)
     raise ValueError(f"unknown arm kind: {arm.kind}")
 
 
@@ -449,13 +511,26 @@ def _load_data(spec: EncoderAblationSpec, dag: GoDag, queries: list[str], rng):
 
     conn = psycopg2.connect(spec.dsn)
     cur = conn.cursor()
+    # Exclude by SEQUENCE, not by accession. The bank is keyed by protein while
+    # embeddings key on sequence_id, so an accession that merely shares a
+    # sequence with a query survived an accession-level exclusion and arrived as
+    # a donor at cosine exactly 1.0, which is a guaranteed rank 1. At K=3 that is
+    # a third of the vote handed straight to the answer.
     qset = set(queries)
+    cur.execute(
+        """SELECT DISTINCT p2.accession
+             FROM protein p1 JOIN protein p2 ON p2.sequence_id = p1.sequence_id
+            WHERE p1.accession = ANY(%s)""",
+        (list(queries),))
+    twins = {a for (a,) in cur.fetchall()} - qset
+    qset |= twins
+    if twins:
+        log.info("excluded %d accessions sharing a sequence with a query", len(twins))
+
     # ORDER BY is load-bearing, not tidiness. Without it Postgres returns this
-    # DISTINCT in whatever order the hash aggregate produces, which varies
-    # between runs, so shuffling with a fixed seed permuted the positions of a
-    # differently ordered list and selected a different reference pool every
-    # time. The seed only makes a run reproducible if what it shuffles is
-    # ordered first.
+    # DISTINCT in whatever order the hash aggregate produces, which varies between
+    # runs, so shuffling with a fixed seed permuted the positions of a differently
+    # ordered list and selected a different reference pool every time.
     cur.execute(
         """SELECT DISTINCT protein_accession FROM protein_go_annotation
            WHERE annotation_set_id = %s AND (hashtextextended(protein_accession, 42) %% %s) = 0
@@ -601,6 +676,49 @@ def _prepare_run(spec: EncoderAblationSpec) -> tuple[Path, Path, Path]:
     return out_dir, obo_path, ia_path
 
 
+def _report_supervision(
+    spec: EncoderAblationSpec, ref_clo: list[frozenset[str]], dag: GoDag
+) -> dict[str, int]:
+    """Say which aspect the supervision is actually about, before any arm is fit.
+
+    The most informative common ancestor is chosen with no aspect filter, and
+    molecular-function terms carry higher information content than
+    biological-process ones because that branch is shallower and better
+    annotated. So an encoder can be optimised for the aspect the campaign cares
+    least about while nothing in the output says so.
+
+    Sampled rather than exhaustive: this is a property of the pool, and a sample
+    of pairs estimates it to more precision than the decision needs.
+    """
+    rng = np.random.default_rng(spec.seed)
+    ic = information_content(ref_clo, dag)
+    bic = [max((ic.get(t, 0.0) for t in c), default=0.0) for c in ref_clo]
+    pairs = sample_pairs(len(ref_clo), min(spec.train_pairs, 50_000), rng)
+    hist = mica_aspect_histogram(TargetInputs(ref_clo, ic, pairs, bic, dag))
+    total = sum(hist.values()) or 1
+    log.info("supervision by aspect over %d sampled pairs: %s", total,
+             " ".join(f"{k}={v} ({100*v/total:.1f}%)" for k, v in hist.items()))
+    return hist
+
+
+def _report_split(
+    spec: EncoderAblationSpec, ref_clo: list, q_accs: list, queries: list, R: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Split the pool and say what the split was, before anything is fit.
+
+    The overlap is logged rather than assumed, because the difference between the
+    two modes is the entire experiment and a run whose log does not state which
+    one it was cannot be read afterwards.
+    """
+    fit_rows, index_rows = split_fit_index(len(ref_clo), spec.fit_index_mode, spec.seed)
+    overlap = len(set(fit_rows.tolist()) & set(index_rows.tolist()))
+    log.info("fit_index_mode=%s | fit=%d index=%d overlap=%d",
+             spec.fit_index_mode, len(fit_rows), len(index_rows), overlap)
+    log.info("reference=%d (with closures) | queries=%d/%d | dim=%d",
+             len(ref_clo), len(q_accs), len(queries), R.shape[1])
+    return fit_rows, index_rows
+
+
 def run_encoder_ablation(spec: EncoderAblationSpec) -> dict:
     """Run the ablation: pull data, build each arm, KNN-transfer, cafaeval, collect deltas."""
     out_dir, obo_path, ia_path = _prepare_run(spec)
@@ -609,8 +727,8 @@ def run_encoder_ablation(spec: EncoderAblationSpec) -> dict:
     queries = sorted({a for d in cells.values() for a in d["proteins"]})
     dag = GoDag.from_obo(obo_path)
     R, Q, ref_clo, q_accs = _load_data(spec, dag, queries, np.random.default_rng(spec.seed))
-    log.info("reference=%d (with closures) | queries=%d/%d | dim=%d",
-             len(ref_clo), len(q_accs), len(queries), R.shape[1])
+    fit_rows, index_rows = _report_split(spec, ref_clo, q_accs, queries, R)
+    supervision = _report_supervision(spec, ref_clo, dag)
     terms = sorted({t for c in ref_clo for t in c})
     tix = {t: i for i, t in enumerate(terms)}
     query_ix = {a: i for i, a in enumerate(q_accs)}
@@ -623,8 +741,10 @@ def run_encoder_ablation(spec: EncoderAblationSpec) -> dict:
     results: dict[str, dict] = {}
     for arm in spec.arms:
         log.info("=== arm=%s (%s) ===", arm.name, arm.kind)
-        Rx, Qx = _build_arm(arm, R, Q, ref_clo, dag, spec)
-        scores = knn_transfer(Qx, Rx, ref_clo, tix, spec.knn)
+        Rx, Qx = _build_arm(arm, ArmData(R, Q, ref_clo, dag), spec, fit_rows)
+        scores = knn_transfer(
+            Qx, Rx[index_rows], [ref_clo[i] for i in index_rows], tix, spec.knn
+        )
         work = out_dir / "cafaeval" / arm.name
         _write_cell_tsvs(scores, query_ix, terms, cells, work)
         cell_fw = _eval_arm_cells(work, cells, obo_path, ia_path, spec, pk_known)
@@ -649,6 +769,9 @@ def run_encoder_ablation(spec: EncoderAblationSpec) -> dict:
         "name": spec.name, "spec_hash": spec.spec_hash(), "status": "ok",
         "embedding_config_id": spec.embedding_config_id, "band": spec.band,
         "reference_n": len(ref_clo), "queries": len(q_accs), "dim": int(R.shape[1]),
+        "fit_index_mode": spec.fit_index_mode,
+        "supervision_by_aspect": supervision,
+        "fit_n": len(fit_rows), "index_n": len(index_rows),
         "results": results,
     }
     (out_dir / "run.json").write_text(json.dumps(report, indent=2, default=str))
