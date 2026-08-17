@@ -143,9 +143,29 @@ def substitute_target(
     if target == "shuffled":
         return rng.permutation(lin)
     if target == "marginal":
+        # Lin is 2*IC(MICA) / (bic_i + bic_j), and the most informative common
+        # ancestor cannot be more informative than either protein's own most
+        # specific term, so IC(MICA) <= min(bic_i, bic_j) always. That constraint
+        # is what keeps the real target inside [0, 1].
+        #
+        # An earlier version substituted the pool MEAN of IC(MICA) over the
+        # untouched denominators. It preserved the marginals but destroyed the
+        # constraint: a global numerator over a small local denominator produced
+        # targets above 1 on about 5 percent of pairs and up to 7.99, and a
+        # cosine cannot reach those. The null was not neutral, it was impossible,
+        # and it would have under-performed for a reason that has nothing to do
+        # with information.
+        #
+        # Substituting the pool mean RATIO of IC(MICA) to that minimum keeps the
+        # constraint: 2*r*min/(a+b) <= 1 because min/(a+b) <= 1/2 and r <= 1. It
+        # also gives the structural zeros for free, since a protein with no
+        # annotated term has bic 0 and therefore min 0.
+        lo = np.array([min(bic[i], bic[j]) for i, j in pairs], dtype=np.float64)
         denom = np.array([bic[i] + bic[j] for i, j in pairs], dtype=np.float64)
-        safe = np.where(denom > 0.0, denom, 1.0)
-        mica = lin * safe / 2.0
-        rebuilt = 2.0 * float(mica.mean()) / safe
+        safe_lo = np.where(lo > 0.0, lo, 1.0)
+        safe_denom = np.where(denom > 0.0, denom, 1.0)
+        mica = lin * safe_denom / 2.0
+        ratio = float(np.mean(np.where(lo > 0.0, mica / safe_lo, 0.0)))
+        rebuilt = 2.0 * ratio * lo / safe_denom
         return np.where(denom > 0.0, rebuilt, 0.0).astype(np.float32)
     raise ValueError(f"unknown target {target!r}; choose lin, marginal or shuffled")

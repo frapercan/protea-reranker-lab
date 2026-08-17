@@ -50,39 +50,74 @@ def test_an_unknown_target_is_refused_rather_than_defaulted():
 # --------------------------------------------------------------------------- the marginal null
 
 def test_the_marginal_null_deletes_every_trace_of_which_pair_is_which():
-    """Two pairs sharing a denominator must receive the identical target."""
+    """Two pairs whose per-protein scalars have the same shape get the same target.
+
+    (0,1) and (2,3) differ in scale, 2 against 3, but both are balanced pairs, so
+    min over sum is one half for each and the rebuilt target is identical. The
+    real targets were 0.9 and 0.1 and that ordering must not survive, because it
+    is the only pair information in the input.
+    """
     bic = [2.0, 2.0, 3.0, 3.0]
     pairs = [(0, 1), (2, 3), (0, 2)]
     lin = np.array([0.9, 0.1, 0.5], dtype=np.float32)
 
     got = substitute_target(lin, pairs, bic, "marginal", np.random.default_rng(0))
 
-    # (0,1) has denominator 4.0 and (2,3) has 6.0, so they differ; but the
-    # ordering of the real targets, 0.9 against 0.1, must not survive.
-    assert got[0] > got[1]  # driven only by the smaller denominator
+    assert np.isclose(got[0], got[1])
     assert not np.isclose(got[0] / got[1], lin[0] / lin[1])
 
 
+def test_the_marginal_null_still_varies_with_how_unbalanced_a_pair_is():
+    """It is a marginal null, not a constant: the per-protein scalars still speak."""
+    bic = [1.0, 1.0, 1.0, 9.0]
+    pairs = [(0, 1), (2, 3)]
+    lin = np.array([0.5, 0.5], dtype=np.float32)
+
+    got = substitute_target(lin, pairs, bic, "marginal", np.random.default_rng(0))
+
+    # balanced pair: min over sum is 1/2. lopsided pair: 1/10.
+    assert got[0] > got[1]
+
+
 def test_the_marginal_null_preserves_the_per_protein_marginals_exactly():
-    """The denominators are untouched, which is what makes it a marginal null."""
+    """Every pair's implied ancestor is one shared ratio of its own minimum."""
     lin, pairs, bic = _fixture()
     got = substitute_target(lin, pairs, bic, "marginal", np.random.default_rng(0))
 
     denom = np.array([bic[i] + bic[j] for i, j in pairs])
+    lo = np.array([min(bic[i], bic[j]) for i, j in pairs])
     implied = got * denom / 2.0
-    # every pair now shares one common-ancestor value: the pool mean
-    assert np.allclose(implied, implied[0], rtol=1e-4)
+    # no pair information survives: the implied ancestor is a constant fraction
+    # of a quantity computed from the two per-protein scalars alone
+    assert np.allclose(implied / lo, (implied / lo)[0], rtol=1e-4)
 
 
-def test_the_marginal_null_keeps_the_mean_common_ancestor_term():
-    """It substitutes the pool mean rather than an arbitrary constant."""
-    lin, pairs, bic = _fixture()
-    denom = np.array([bic[i] + bic[j] for i, j in pairs])
-    expected_mica = float((lin * denom / 2.0).mean())
+def test_the_marginal_null_stays_inside_the_range_a_cosine_can_reach():
+    """The regression, and it is not about finiteness.
 
+    An earlier version substituted the pool mean ancestor over untouched
+    denominators. It produced targets up to 7.99 on roughly 5 percent of pairs.
+    Those values are finite, so a finiteness check passed them, and a cosine
+    cannot reach any of them: the null would have lost for a reason that has
+    nothing to do with information.
+    """
+    lin, pairs, bic = _fixture(n_proteins=40)
     got = substitute_target(lin, pairs, bic, "marginal", np.random.default_rng(0))
 
-    assert np.isclose(float((got * denom / 2.0).mean()), expected_mica, rtol=1e-4)
+    assert got.max() <= 1.0
+    assert got.min() >= 0.0
+
+
+def test_the_marginal_null_respects_the_constraint_that_bounds_the_real_target():
+    """IC(MICA) <= min(bic), which is what keeps Lin at or below one."""
+    lin, pairs, bic = _fixture(n_proteins=40)
+    got = substitute_target(lin, pairs, bic, "marginal", np.random.default_rng(0))
+
+    denom = np.array([bic[i] + bic[j] for i, j in pairs])
+    lo = np.array([min(bic[i], bic[j]) for i, j in pairs])
+    implied_mica = got * denom / 2.0
+
+    assert np.all(implied_mica <= lo + 1e-6)
 
 
 def test_a_zero_denominator_does_not_divide_by_zero():
