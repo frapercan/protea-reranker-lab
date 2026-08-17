@@ -73,6 +73,10 @@ class ArmSpec:
     dict_dim: int = 2048
     top_k: int = 128
     objective: str = "cosine-lin"  # learned only: "cosine-lin" | "hard-neg"
+    # What the code cosine is regressed onto. "lin" is the real target; the other
+    # two are nulls that keep the encoder, the pairs and the pool identical and
+    # change only what it is asked to predict. See ``substitute_target``.
+    target: str = "lin"
 
 
 def _default_arms() -> list[ArmSpec]:
@@ -256,6 +260,43 @@ def _pca(R: np.ndarray, Q: np.ndarray, k: int,
     return p.transform(R).astype(np.float32), p.transform(Q).astype(np.float32)
 
 
+def substitute_target(
+    lin: np.ndarray, pairs: list[tuple[int, int]], bic: list[float],
+    target: str, rng: np.random.Generator,
+) -> np.ndarray:
+    """Replace the regression target with a null, keeping everything else fixed.
+
+    Lin similarity is twice the information content of the most informative
+    common ancestor over the sum of the two proteins' best-IC values. Best-IC is
+    a PER-PROTEIN scalar, so a large share of the target's variance is explained
+    by two per-protein numbers and no pair information at all. An encoder that
+    scores well may have learned that and nothing else.
+
+    ``marginal`` tests exactly that. It recovers the common-ancestor term from
+    the Lin values, replaces it with its pool mean, and rebuilds the target over
+    the untouched denominators. Both per-protein marginals survive; every trace
+    of which pair is which is gone. If this recovers a large share of the real
+    target's gain, the headline is an annotation-mass prior rather than a
+    functional representation.
+
+    ``shuffled`` permutes the real targets across pairs. It preserves the
+    target's whole marginal distribution and destroys its relationship to the
+    inputs, so any gain over the raw embedding under this condition is an offset
+    that every other number carries too.
+    """
+    if target == "lin":
+        return lin
+    if target == "shuffled":
+        return rng.permutation(lin)
+    if target == "marginal":
+        denom = np.array([bic[i] + bic[j] for i, j in pairs], dtype=np.float64)
+        safe = np.where(denom > 0.0, denom, 1.0)
+        mica = lin * safe / 2.0
+        rebuilt = 2.0 * float(mica.mean()) / safe
+        return np.where(denom > 0.0, rebuilt, 0.0).astype(np.float32)
+    raise ValueError(f"unknown target {target!r}; choose lin, marginal or shuffled")
+
+
 def fit_encoder(R: np.ndarray, closures: list[frozenset[str]], dag: GoDag, arm: ArmSpec,
                 spec: EncoderAblationSpec) -> nn.Linear:
     """Train the GO-aligned Linear(d->dict) projection on the reference pool; return the model."""
@@ -281,7 +322,9 @@ def fit_encoder(R: np.ndarray, closures: list[frozenset[str]], dag: GoDag, arm: 
             for j in nbr[a_i]:
                 pairs.append((int(anchor), int(j)) if anchor < j else (int(j), int(anchor)))
 
-    y = torch.tensor(np.asarray(lin_pairwise(closures, ic, pairs, bic), dtype=np.float32), device=dev)
+    lin = np.asarray(lin_pairwise(closures, ic, pairs, bic), dtype=np.float32)
+    lin = substitute_target(lin, pairs, bic, arm.target, rng)
+    y = torch.tensor(lin, device=dev)
     ti = torch.tensor([p[0] for p in pairs], device=dev)
     tj = torch.tensor([p[1] for p in pairs], device=dev)
     enc = nn.Linear(d, arm.dict_dim).to(dev)
