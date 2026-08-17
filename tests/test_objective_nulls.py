@@ -16,7 +16,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from protea_reranker_lab.encoder_ablation import ArmSpec, substitute_target
+from protea_reranker_lab.encoder_ablation import ArmSpec
+from protea_reranker_lab.objectives import substitute_target
 
 
 def _fixture(n_proteins: int = 6, seed: int = 0):

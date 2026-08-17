@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 
 from protea_reranker_lab.encoder_ablation import (
+    ArmData,
     ArmSpec,
     EncoderAblationSpec,
     _build_arm,
@@ -114,7 +115,7 @@ def test_the_arm_is_fit_on_the_subset_and_applied_to_everything(monkeypatch):
     fit_rows = np.arange(10)
 
     Rx, _ = _build_arm(
-        ArmSpec(name="learned", kind="learned"), R, Q, closures, None,
+        ArmSpec(name="learned", kind="learned"), ArmData(R, Q, closures, None),
         EncoderAblationSpec(), fit_rows,
     )
 
@@ -142,8 +143,9 @@ def test_without_a_mask_the_arm_fits_on_everything(monkeypatch):
     closures = [frozenset({f"GO:{i}"}) for i in range(20)]
 
     _build_arm(
-        ArmSpec(name="learned", kind="learned"), R, np.zeros((2, 2), dtype=np.float32),
-        closures, None, EncoderAblationSpec(),
+        ArmSpec(name="learned", kind="learned"),
+        ArmData(R, np.zeros((2, 2), dtype=np.float32), closures, None),
+        EncoderAblationSpec(),
     )
 
     assert seen["fit_rows"] == 20

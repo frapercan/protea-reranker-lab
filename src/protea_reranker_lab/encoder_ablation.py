@@ -37,6 +37,7 @@ import numpy as np
 from protea_reranker_lab.band_registry_bridge import resolve_band_artifacts
 from protea_reranker_lab.native_boosters_mlflow import MlflowLogger
 from protea_reranker_lab import host_paths
+from protea_reranker_lab.objectives import TargetInputs, build_target, mica_aspect_histogram
 from protea_reranker_lab.sdr import GoDag, information_content, lin_pairwise, propagate
 from protea_reranker_lab.universal_runner import (
     _run_cafaeval,
@@ -263,117 +264,6 @@ def _pca(R: np.ndarray, Q: np.ndarray, k: int,
     return p.transform(R).astype(np.float32), p.transform(Q).astype(np.float32)
 
 
-def mica_aspect_histogram(
-    closures: list[frozenset[str]], ic: dict[str, float],
-    pairs: list[tuple[int, int]], dag: GoDag,
-) -> dict[str, int]:
-    """Which aspect the most informative common ancestor belongs to, per pair.
-
-    A pre-flight, not an arm. ``_max_common_ancestor_ic`` applies no aspect
-    filter, while molecular-function terms carry higher information content than
-    biological-process ones because the branch is shallower and better annotated.
-    So the supervision may be dominated by the aspect the campaign cares least
-    about, and the encoder would be optimised for it without anything saying so.
-
-    Costs one pass over the pairs and answers whether the ``bpo`` arm is worth
-    fitting at all.
-    """
-    counts: dict[str, int] = {"P": 0, "F": 0, "C": 0, "none": 0}
-    for i, j in pairs:
-        common = closures[i] & closures[j]
-        if not common:
-            counts["none"] += 1
-            continue
-        best = max(common, key=lambda term: ic.get(term, 0.0))
-        counts[dag.aspect.get(best, "none")] = counts.get(dag.aspect.get(best, "none"), 0) + 1
-    return counts
-
-
-def _jaccard_pairwise(
-    closures: list[frozenset[str]], pairs: list[tuple[int, int]]
-) -> np.ndarray:
-    """Overlap of two propagated closures, with every term weighted equally.
-
-    Prices metric alignment. cafaeval weights by information accretion and Lin
-    weights by information content, and both come from the same frequency table,
-    so the learned arm is the only one that was ever told the metric's weights.
-    An arm trained on an unweighted target and scored by the weighted metric says
-    how much of the gain was that alignment rather than the representation.
-    """
-    out = np.empty(len(pairs), dtype=np.float32)
-    for n, (i, j) in enumerate(pairs):
-        a, b = closures[i], closures[j]
-        union = len(a | b)
-        out[n] = (len(a & b) / union) if union else 0.0
-    return out
-
-
-def _restrict_to_aspect(closures: list[frozenset[str]], dag: GoDag, aspect: str) -> list[frozenset[str]]:
-    """Drop every term outside one aspect, so the target speaks only about it."""
-    return [frozenset(t for t in c if dag.aspect.get(t) == aspect) for c in closures]
-
-
-def build_target(
-    closures: list[frozenset[str]], ic: dict[str, float], pairs: list[tuple[int, int]],
-    bic: list[float], dag: GoDag, target: str, rng: np.random.Generator,
-) -> np.ndarray:
-    """The scalar the code cosine is regressed onto, for one arm.
-
-    Everything except the target is held identical across arms: the same pool,
-    the same pairs, the same seed. So a difference between two arms is a
-    difference in what was asked for and nothing else.
-    """
-    if target == "jaccard":
-        return _jaccard_pairwise(closures, pairs)
-    if target == "bpo":
-        # The information content has to be recomputed on the restricted
-        # closures. Reusing the full-ontology IC would weight biological-process
-        # terms by frequencies that counted molecular-function annotations too.
-        restricted = _restrict_to_aspect(closures, dag, "P")
-        ic_p = information_content(restricted, dag)
-        bic_p = [max((ic_p.get(t, 0.0) for t in c), default=0.0) for c in restricted]
-        return np.asarray(lin_pairwise(restricted, ic_p, pairs, bic_p), dtype=np.float32)
-    lin = np.asarray(lin_pairwise(closures, ic, pairs, bic), dtype=np.float32)
-    return substitute_target(lin, pairs, bic, target, rng)
-
-
-def substitute_target(
-    lin: np.ndarray, pairs: list[tuple[int, int]], bic: list[float],
-    target: str, rng: np.random.Generator,
-) -> np.ndarray:
-    """Replace the regression target with a null, keeping everything else fixed.
-
-    Lin similarity is twice the information content of the most informative
-    common ancestor over the sum of the two proteins' best-IC values. Best-IC is
-    a PER-PROTEIN scalar, so a large share of the target's variance is explained
-    by two per-protein numbers and no pair information at all. An encoder that
-    scores well may have learned that and nothing else.
-
-    ``marginal`` tests exactly that. It recovers the common-ancestor term from
-    the Lin values, replaces it with its pool mean, and rebuilds the target over
-    the untouched denominators. Both per-protein marginals survive; every trace
-    of which pair is which is gone. If this recovers a large share of the real
-    target's gain, the headline is an annotation-mass prior rather than a
-    functional representation.
-
-    ``shuffled`` permutes the real targets across pairs. It preserves the
-    target's whole marginal distribution and destroys its relationship to the
-    inputs, so any gain over the raw embedding under this condition is an offset
-    that every other number carries too.
-    """
-    if target == "lin":
-        return lin
-    if target == "shuffled":
-        return rng.permutation(lin)
-    if target == "marginal":
-        denom = np.array([bic[i] + bic[j] for i, j in pairs], dtype=np.float64)
-        safe = np.where(denom > 0.0, denom, 1.0)
-        mica = lin * safe / 2.0
-        rebuilt = 2.0 * float(mica.mean()) / safe
-        return np.where(denom > 0.0, rebuilt, 0.0).astype(np.float32)
-    raise ValueError(f"unknown target {target!r}; choose lin, marginal or shuffled")
-
-
 def fit_encoder(R: np.ndarray, closures: list[frozenset[str]], dag: GoDag, arm: ArmSpec,
                 spec: EncoderAblationSpec) -> nn.Linear:
     """Train the GO-aligned Linear(d->dict) projection on the reference pool; return the model."""
@@ -400,7 +290,8 @@ def fit_encoder(R: np.ndarray, closures: list[frozenset[str]], dag: GoDag, arm: 
                 pairs.append((int(anchor), int(j)) if anchor < j else (int(j), int(anchor)))
 
     y = torch.tensor(
-        build_target(closures, ic, pairs, bic, dag, arm.target, rng), device=dev
+        build_target(TargetInputs(closures, ic, pairs, bic, dag), arm.target, rng),
+        device=dev,
     )
     ti = torch.tensor([p[0] for p in pairs], device=dev)
     tj = torch.tensor([p[1] for p in pairs], device=dev)
@@ -434,9 +325,19 @@ def apply_encoder(enc: nn.Linear, X: np.ndarray, top_k: int) -> np.ndarray:
     return topk_real(Z, top_k)
 
 
+@dataclass(frozen=True)
+class ArmData:
+    """The pool an arm is built over. These four are never used apart."""
+
+    R: np.ndarray
+    Q: np.ndarray
+    closures: list[frozenset[str]]
+    dag: GoDag
+
+
 def _train_encoder(
-    R: np.ndarray, Q: np.ndarray, closures: list[frozenset[str]], dag: GoDag, arm: ArmSpec,
-    spec: EncoderAblationSpec, fit_rows: np.ndarray | None = None,
+    data: ArmData, arm: ArmSpec, spec: EncoderAblationSpec,
+    fit_rows: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Train on ``fit_rows``, apply to every reference and query.
 
@@ -445,10 +346,11 @@ def _train_encoder(
     draws from, the encoder has seen every donor it will be scored against, which
     is the shipped condition and is not a generalisation result.
     """
+    R, closures = data.R, data.closures
     fit_R = R if fit_rows is None else R[fit_rows]
     fit_clo = closures if fit_rows is None else [closures[i] for i in fit_rows]
-    enc = fit_encoder(fit_R, fit_clo, dag, arm, spec)
-    return apply_encoder(enc, R, arm.top_k), apply_encoder(enc, Q, arm.top_k)
+    enc = fit_encoder(fit_R, fit_clo, data.dag, arm, spec)
+    return apply_encoder(enc, R, arm.top_k), apply_encoder(enc, data.Q, arm.top_k)
 
 
 def split_fit_index(n: int, mode: str, seed: int) -> tuple[np.ndarray, np.ndarray]:
@@ -474,15 +376,14 @@ def split_fit_index(n: int, mode: str, seed: int) -> tuple[np.ndarray, np.ndarra
     raise ValueError(f"unknown fit_index_mode {mode!r}; choose shared or disjoint")
 
 
-def _build_arm(arm: ArmSpec, R: np.ndarray, Q: np.ndarray, closures: list[frozenset[str]], dag: GoDag,
-               spec: EncoderAblationSpec,
+def _build_arm(arm: ArmSpec, data: ArmData, spec: EncoderAblationSpec,
                fit_rows: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
     if arm.kind == "dense":
-        return R, Q
+        return data.R, data.Q
     if arm.kind == "pca":
-        return _pca(R, Q, arm.pca_dim, fit_rows)
+        return _pca(data.R, data.Q, arm.pca_dim, fit_rows)
     if arm.kind == "learned":
-        return _train_encoder(R, Q, closures, dag, arm, spec, fit_rows)
+        return _train_encoder(data, arm, spec, fit_rows)
     raise ValueError(f"unknown arm kind: {arm.kind}")
 
 
@@ -779,16 +680,34 @@ def run_encoder_ablation(spec: EncoderAblationSpec) -> dict:
     """Run the ablation: pull data, build each arm, KNN-transfer, cafaeval, collect deltas."""
     out_dir, obo_path, ia_path = _prepare_run(spec)
 
-    cells = load_gt(spec.require_gt_dir())
-    queries = sorted({a for d in cells.values() for a in d["proteins"]})
-    dag = GoDag.from_obo(obo_path)
-    R, Q, ref_clo, q_accs = _load_data(spec, dag, queries, np.random.default_rng(spec.seed))
+
+def _report_split(
+    spec: EncoderAblationSpec, ref_clo: list, q_accs: list, queries: list, R: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Split the pool and say what the split was, before anything is fit.
+
+    The overlap is logged rather than assumed, because the difference between the
+    two modes is the entire experiment and a run whose log does not state which
+    one it was cannot be read afterwards.
+    """
     fit_rows, index_rows = split_fit_index(len(ref_clo), spec.fit_index_mode, spec.seed)
     overlap = len(set(fit_rows.tolist()) & set(index_rows.tolist()))
     log.info("fit_index_mode=%s | fit=%d index=%d overlap=%d",
              spec.fit_index_mode, len(fit_rows), len(index_rows), overlap)
     log.info("reference=%d (with closures) | queries=%d/%d | dim=%d",
              len(ref_clo), len(q_accs), len(queries), R.shape[1])
+    return fit_rows, index_rows
+
+
+def run_encoder_ablation(spec: EncoderAblationSpec) -> dict:
+    """Run the ablation: pull data, build each arm, KNN-transfer, cafaeval, collect deltas."""
+    out_dir, obo_path, ia_path = _prepare_run(spec)
+
+    cells = load_gt(spec.require_gt_dir())
+    queries = sorted({a for d in cells.values() for a in d["proteins"]})
+    dag = GoDag.from_obo(obo_path)
+    R, Q, ref_clo, q_accs = _load_data(spec, dag, queries, np.random.default_rng(spec.seed))
+    fit_rows, index_rows = _report_split(spec, ref_clo, q_accs, queries, R)
     terms = sorted({t for c in ref_clo for t in c})
     tix = {t: i for i, t in enumerate(terms)}
     query_ix = {a: i for i, a in enumerate(q_accs)}
@@ -801,7 +720,7 @@ def run_encoder_ablation(spec: EncoderAblationSpec) -> dict:
     results: dict[str, dict] = {}
     for arm in spec.arms:
         log.info("=== arm=%s (%s) ===", arm.name, arm.kind)
-        Rx, Qx = _build_arm(arm, R, Q, ref_clo, dag, spec, fit_rows)
+        Rx, Qx = _build_arm(arm, ArmData(R, Q, ref_clo, dag), spec, fit_rows)
         scores = knn_transfer(
             Qx, Rx[index_rows], [ref_clo[i] for i in index_rows], tix, spec.knn
         )

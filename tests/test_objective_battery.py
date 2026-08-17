@@ -19,7 +19,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from protea_reranker_lab.encoder_ablation import (
+from protea_reranker_lab.objectives import (
+    TargetInputs,
     _jaccard_pairwise,
     _restrict_to_aspect,
     build_target,
@@ -45,7 +46,7 @@ def test_the_histogram_names_the_aspect_of_the_winning_ancestor():
     # the molecular-function term is more informative, so it wins the argmax
     ic = {"GO:P1": 1.0, "GO:F1": 9.0, "GO:C1": 1.0}
 
-    got = mica_aspect_histogram(closures, ic, [(0, 1)], dag)
+    got = mica_aspect_histogram(TargetInputs(closures, ic, [(0, 1)], [], dag))
 
     assert got["F"] == 1
     assert got["P"] == 0
@@ -56,7 +57,7 @@ def test_a_pair_with_no_common_ancestor_is_counted_and_not_dropped():
     dag = _Dag({"GO:P1": "P", "GO:F1": "F"})
     closures = [frozenset({"GO:P1"}), frozenset({"GO:F1"})]
 
-    got = mica_aspect_histogram(closures, {"GO:P1": 1.0, "GO:F1": 1.0}, [(0, 1)], dag)
+    got = mica_aspect_histogram(TargetInputs(closures, {"GO:P1": 1.0, "GO:F1": 1.0}, [(0, 1)], [], dag))
 
     assert got["none"] == 1
     assert sum(got.values()) == 1
@@ -68,7 +69,7 @@ def test_the_histogram_totals_the_pair_count():
     ic = {f"GO:P{i}": float(i) for i in range(4)}
     pairs = [(0, 1), (0, 2), (1, 2)]
 
-    got = mica_aspect_histogram(closures, ic, pairs, dag)
+    got = mica_aspect_histogram(TargetInputs(closures, ic, pairs, [], dag))
 
     assert sum(got.values()) == len(pairs)
 
@@ -131,7 +132,7 @@ def test_an_unknown_term_is_dropped_rather_than_kept():
 def test_an_unknown_target_is_refused_by_the_builder_too():
     dag = _Dag({})
     with pytest.raises(ValueError, match="unknown target"):
-        build_target([frozenset()], {}, [(0, 0)], [0.0], dag, "nonsense",
+        build_target(TargetInputs([frozenset()], {}, [(0, 0)], [0.0], dag), "nonsense",
                      np.random.default_rng(0))
 
 
@@ -140,7 +141,7 @@ def test_jaccard_routes_without_touching_information_content():
     dag = _Dag({})
     closures = [frozenset({"a", "b"}), frozenset({"b"})]
 
-    got = build_target(closures, {}, [(0, 1)], [0.0, 0.0], dag, "jaccard",
+    got = build_target(TargetInputs(closures, {}, [(0, 1)], [0.0, 0.0], dag), "jaccard",
                        np.random.default_rng(0))
 
     assert np.isclose(got[0], 0.5)
