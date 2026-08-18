@@ -148,3 +148,52 @@ def streaming_standardisation(store: ProbeStore, layer_index: list[int] | None,
     mean = total / count
     variance = np.maximum(square / count - mean ** 2, 0.0)
     return mean.astype(np.float32), np.sqrt(variance).astype(np.float32)
+
+
+def extract_and_write(path, sequences: dict[str, str], spec, extract_one,
+                      layers: tuple[int, ...], width: int) -> ProbeStore:
+    """Extract and write protein by protein, never holding the probe in memory.
+
+    The gap this closes: extracting into a dict and writing afterwards holds every
+    residue of every protein at once, which is the 9 GB the memory-mapped store was
+    built to avoid. The map is sized from the lengths, which are known before any
+    forward pass, and each protein is written into its slot as it comes off the
+    card.
+
+    Peak resident becomes one protein plus the model, rather than the probe.
+    """
+    path = Path(path)
+    accessions = sorted(sequences)
+    lengths = [len(sequences[a]) for a in accessions]
+    offsets = np.concatenate([[0], np.cumsum(lengths)]).astype(np.int64)
+    total = int(offsets[-1])
+
+    matrix = np.lib.format.open_memmap(
+        path, mode="w+", dtype=np.float32, shape=(total, len(layers), width)
+    )
+    try:
+        for i, accession in enumerate(accessions):
+            block = extract_one(sequences[accession], spec)
+            start, end = int(offsets[i]), int(offsets[i + 1])
+            if block.shape[0] != end - start:
+                raise ValueError(
+                    f"{accession} is {end - start} residues and extraction returned "
+                    f"{block.shape[0]}; writing it would shift every protein after it"
+                )
+            matrix[start:end] = block
+            del block
+            if (i + 1) % 25 == 0 or i + 1 == len(accessions):
+                matrix.flush()
+                log.info("  written %d/%d proteins", i + 1, len(accessions))
+    finally:
+        matrix.flush()
+        del matrix
+
+    path.with_suffix(".index.json").write_text(json.dumps({
+        "accessions": accessions, "offsets": offsets.tolist(),
+        "layers": list(layers), "width": width,
+    }))
+    log.info("probe written: %d proteins, %d residues, %.2f GB, memory-mapped",
+             len(accessions), total, total * len(layers) * width * 4 / 1024 ** 3)
+    return open_probe(path)
+
