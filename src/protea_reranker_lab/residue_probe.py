@@ -57,11 +57,52 @@ class ProbeSpec:
     per_band: int = 50
     layers: tuple[int, ...] = (0, 10, 19, 29, 38, 48)
     width: int = 768
-    max_length: int = 2048
+    #: Residues per forward window. Long proteins are CHUNKED rather than
+    #: truncated, so the probe keeps every residue of every protein. The band
+    #: where the mechanism is expected to act most is the long one, and truncating
+    #: it would measure the mechanism on a prefix precisely where it matters.
+    chunk_size: int = 1024
+    chunk_overlap: int = 128
     seed: int = 42
     #: Bytes the extracted tensors may occupy. A ceiling rather than a guess,
     #: because the failure it prevents is discovered an hour in.
     max_bytes: int = 8 * 1024 ** 3
+
+
+def chunk_spans(length: int, chunk_size: int, overlap: int) -> list[tuple[int, int]]:
+    """Overlapping windows covering the whole sequence, never a prefix of it.
+
+    Mirrors ``_compute_chunk_spans`` in PROTEA's embedding backends, semantics
+    included, so the probe and production partition a long protein the same way.
+    Mirrored rather than imported because the lab does not depend on PROTEA
+    internals; the shared convention is the contract.
+
+    Refuses an overlap that reaches the chunk size, which would produce O(L)
+    single-residue windows or fail to advance at all.
+    """
+    if overlap >= chunk_size:
+        raise ValueError(
+            f"chunk_overlap ({overlap}) must be strictly less than chunk_size "
+            f"({chunk_size}); otherwise the window never advances"
+        )
+    step = chunk_size - overlap
+    spans: list[tuple[int, int]] = []
+    start = 0
+    while start < length:
+        spans.append((start, min(start + chunk_size, length)))
+        start += step
+    return spans
+
+
+def computed_residues(length: int, spec: ProbeSpec) -> int:
+    """Residue positions the model actually processes, overlap counted twice.
+
+    Distinct from what is stored: overlapping windows are merged into one row per
+    residue, so storage is the protein's length while COMPUTE is the sum of the
+    window lengths. Reporting one as the other understates the forward-pass cost
+    by the overlap fraction.
+    """
+    return sum(e - s for s, e in chunk_spans(length, spec.chunk_size, spec.chunk_overlap))
 
 
 def band_of(length: int) -> str:
@@ -104,10 +145,7 @@ def estimate_bytes(lengths: dict[str, int], chosen: dict[str, list[str]],
     pushing a summary through a nonlinear function is how a storage figure came out
     wrong twice already.
     """
-    residues = sum(
-        min(lengths[a], spec.max_length)
-        for members in chosen.values() for a in members
-    )
+    residues = sum(lengths[a] for members in chosen.values() for a in members)
     return residues * len(spec.layers) * spec.width * 4
 
 
@@ -134,16 +172,26 @@ def plan_probe(lengths: dict[str, int], spec: ProbeSpec) -> dict:
     size = estimate_bytes(lengths, chosen, spec)
     refuse_an_oversized_probe(size, spec)
     per_band = {name: len(members) for name, members in chosen.items()}
-    residues = sum(min(lengths[a], spec.max_length)
-                   for m in chosen.values() for a in m)
-    log.info("probe: %d proteins across %d bands, %d residues, %.2f GB float32",
-             sum(per_band.values()), len(per_band), residues, size / 1024 ** 3)
+    accessions = [a for m in chosen.values() for a in m]
+    stored = sum(lengths[a] for a in accessions)
+    computed = sum(computed_residues(lengths[a], spec) for a in accessions)
+    chunked = sorted(a for a in accessions if lengths[a] > spec.chunk_size)
+    log.info(
+        "probe: %d proteins, %d residues stored, %d computed (%.1f%% overlap), "
+        "%.2f GB float32, %d chunked, 0 truncated",
+        len(accessions), stored, computed,
+        100.0 * (computed - stored) / stored if stored else 0.0,
+        size / 1024 ** 3, len(chunked),
+    )
     return {
         "accessions": chosen,
         "per_band": per_band,
-        "residues": residues,
+        "residues_stored": stored,
+        "residues_computed": computed,
         "bytes": size,
         "layers": list(spec.layers),
-        "truncated": sorted(a for m in chosen.values() for a in m
-                            if lengths[a] > spec.max_length),
+        # Named rather than counted as truncation, because nothing is discarded:
+        # these proteins are covered by several overlapping windows and merged.
+        "chunked": chunked,
+        "truncated": [],
     }
