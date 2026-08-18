@@ -29,7 +29,6 @@ from protea_reranker_lab.sparse_aggregation import (
     topk_real,
 )
 
-
 # --------------------------------------------------------------- the non-commutativity
 
 def test_the_two_orders_select_different_atoms():
