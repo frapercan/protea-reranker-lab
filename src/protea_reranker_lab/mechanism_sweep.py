@@ -45,6 +45,7 @@ from protea_reranker_lab.functional_proxy import (
 from protea_reranker_lab.mechanism import MechanismSpec, is_streamable
 from protea_reranker_lab.mechanism_apply import apply_mechanism
 from protea_reranker_lab.probe_store import ProbeStore, streaming_standardisation
+from protea_reranker_lab.residue_probe import LENGTH_BANDS
 
 log = logging.getLogger(__name__)
 
@@ -62,6 +63,9 @@ class SweepInputs:
     store: ProbeStore
     closures: dict[str, frozenset[str]]
     source_digest: str
+    #: Sequence lengths, so every score can be reported per length band. Optional
+    #: only so a caller can screen without them; a pooled mean is not a result.
+    lengths: dict[str, int] | None = None
 
     @property
     def layers(self) -> tuple[int, ...]:
@@ -188,6 +192,30 @@ def codes_for(inputs: SweepInputs, spec: MechanismSpec) -> tuple[np.ndarray, lis
     return np.vstack(codes), accessions
 
 
+def by_length_band(accessions: list[str], lengths: dict[str, int],
+                   scores: np.ndarray) -> dict[str, dict]:
+    """Per-protein scores grouped by the query's length band.
+
+    The band is the QUERY's, not the neighbour's: retrieval runs over the whole
+    pool and the question is how a protein of a given length is served by it.
+    Grouping by anything else would answer a different question and look the same.
+
+    Standing rule in this project, and it has teeth here: the one measured gain
+    from a better layer and normalisation concentrated on long proteins, +41 per
+    cent against +27 overall, so a pooled mean is where that finding would have
+    disappeared.
+    """
+    out: dict[str, dict] = {}
+    for name, low, high in LENGTH_BANDS:
+        idx = [i for i, a in enumerate(accessions) if low <= lengths.get(a, 0) <= high]
+        if not idx:
+            continue
+        values = scores[idx]
+        out[name] = {"mean": float(values.mean()), "n": len(idx),
+                     "per_protein": values, "accessions": [accessions[i] for i in idx]}
+    return out
+
+
 def score_variant(inputs: SweepInputs, spec: MechanismSpec, *,
                   pairs: np.ndarray | None = None, purity_k: int = 10) -> dict:
     """Both screen measures for one variant, or the reason it could not be scored.
@@ -209,9 +237,16 @@ def score_variant(inputs: SweepInputs, spec: MechanismSpec, *,
     except ValueError as exc:
         result.update({"spearman": None, "rank_reason": str(exc)[:120]})
     purity = neighbour_purity(codes, closures, purity_k)
-    result["per_protein"] = purity.pop("per_protein")
+    per_protein = purity.pop("per_protein")
+    result["per_protein"] = per_protein
     result.update(purity)
     result["accessions"] = accessions
+    if inputs.lengths:
+        bands = by_length_band(accessions, inputs.lengths, per_protein)
+        result["bands"] = {
+            name: {"mean": b["mean"], "n": b["n"]} for name, b in bands.items()
+        }
+        result["band_per_protein"] = {name: b["per_protein"] for name, b in bands.items()}
     return result
 
 
