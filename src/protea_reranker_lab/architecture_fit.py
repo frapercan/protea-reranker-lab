@@ -69,10 +69,104 @@ def _residue_topk(t, keep: int, torch):
     """
     if keep >= t.shape[-1]:
         return t
-    values, indices = torch.topk(t.abs(), keep, dim=-1)
-    del values
-    mask = torch.zeros_like(t).scatter_(-1, indices, 1.0)
-    return t * mask
+    # A threshold, not a mask, and the magnitudes computed ONCE. The obvious form
+    # builds a zeros_like, scatters ones into it and multiplies, holding three
+    # tensors of the residue tensor's size, which is what ran the card out of
+    # memory on the longest band. Taking abs twice, as the first fix did, still
+    # peaked at 2.3 times the input; reusing it peaks near 1.3.
+    magnitude = t.abs()
+    kth = magnitude.kthvalue(t.shape[-1] - keep + 1, dim=-1, keepdim=True).values
+    magnitude = magnitude < kth
+    return t.masked_fill(magnitude, 0.0)
+
+
+#: Residues processed in one matmul. The batch is bounded by RESIDUES rather than
+#: by proteins because lengths span 40 to 8,886 here: a fixed protein count makes
+#: the working set swing by two orders of magnitude and the card runs out on the
+#: unlucky batch.
+RESIDUE_BATCH = 200_000
+
+
+class ResidueCache:
+    """Residues concatenated and moved to the device ONCE, with the owner map.
+
+    The training loop projects the same residues every epoch and only the matrix
+    changes, so concatenating and transferring per epoch pays the same cost 250
+    times. Measured on a 200,000-residue batch: concatenate 0.095 s, transfer
+    0.087 s, matmul 0.081 s, so two thirds of the work was moving data that had
+    not changed.
+
+    A CAUTION THAT IS NOT ABOUT SPEED. Batching changes the matmul's accumulation
+    order, which moves activations by about 1e-7, and top-k turns that into a
+    DIFFERENT ATOM whenever two are near-tied. One protein in four hundred selected
+    a different atom and its pooled vector then differed by the full magnitude of
+    the swap. The sparse code is not numerically stable under changes in the
+    compute path, which is a property of the approach rather than of this cache,
+    and it means a code produced on one backend cannot be assumed bit-identical to
+    one produced on another.
+    """
+
+    def __init__(self, residues: list[np.ndarray], torch, device):
+        lengths = [r.shape[0] for r in residues]
+        self.matrix = torch.tensor(np.concatenate(residues, axis=0), device=device)
+        self.owner = torch.repeat_interleave(
+            torch.arange(len(residues), device=device),
+            torch.tensor(lengths, device=device),
+        )
+        self.counts = torch.tensor(lengths, device=device, dtype=torch.float32).unsqueeze(1)
+        self.n = len(residues)
+
+    def pooled(self, weights, torch, keep: int | None = None):
+        block = self.matrix if weights is None else self.matrix @ weights
+        if weights is not None and keep is not None:
+            block = _residue_topk(block, keep, torch)
+        sums = torch.zeros(self.n, block.shape[1], device=block.device, dtype=block.dtype)
+        sums.index_add_(0, self.owner, block)
+        return sums / self.counts
+
+    def bytes(self) -> int:
+        return self.matrix.numel() * 4
+
+
+def _pooled_batched(residues: list[np.ndarray], matrix, torch, device,
+                    keep: int | None = None):
+    """Mean per protein, computed with ONE matmul per batch instead of one per protein.
+
+    The loop this replaces did a small matmul per protein and left the card at one
+    per cent while a Python loop saturated a core. At 400 proteins that is minutes;
+    at 20,000 it is the whole cost, since the loop runs every epoch.
+
+    Residues are concatenated into a single matrix, projected once, sparsified once
+    if asked, and then summed back per protein through ``index_add_``, which is the
+    segment reduction the per-protein mean actually is. No padding, so a batch of
+    forty-residue proteins costs forty rows rather than a padded eight thousand.
+    """
+    lengths = [r.shape[0] for r in residues]
+    out = torch.zeros(len(residues), device=device,
+                      dtype=torch.float32) if False else None
+    pooled = []
+    start = 0
+    while start < len(residues):
+        end, total = start, 0
+        while end < len(residues) and (total + lengths[end] <= RESIDUE_BATCH or end == start):
+            total += lengths[end]
+            end += 1
+        block = torch.tensor(np.concatenate(residues[start:end], axis=0), device=device)
+        if matrix is not None:
+            block = block @ matrix
+            if keep is not None:
+                block = _residue_topk(block, keep, torch)
+        owner = torch.repeat_interleave(
+            torch.arange(end - start, device=device),
+            torch.tensor(lengths[start:end], device=device),
+        )
+        sums = torch.zeros(end - start, block.shape[1], device=device, dtype=block.dtype)
+        sums.index_add_(0, owner, block)
+        counts = torch.tensor(lengths[start:end], device=device,
+                              dtype=block.dtype).unsqueeze(1)
+        pooled.append(sums / counts)
+        start = end
+    return torch.cat(pooled, dim=0)
 
 
 def _pooled(residues: list[np.ndarray], matrix, torch, device, keep: int | None = None):
@@ -142,9 +236,11 @@ def fit_architecture(residues: dict[str, np.ndarray], closures: dict[str, frozen
     res_w, prot_w = _init_maps(arch, dim, seed, torch, device)
 
     keep = arch.residue.keep if (arch.residue and not arch.residue.is_dense) else None
+    cache = ResidueCache(stack, torch, device)
+    log.info("residue cache: %.2f GB on %s", cache.bytes() / 1024 ** 3, device)
 
     def run(params, use_protein: bool):
-        pooled = _pooled(stack, res_w if arch.residue else None, torch, device, keep)
+        pooled = cache.pooled(res_w if arch.residue else None, torch, keep)
         z = pooled @ prot_w if (use_protein and prot_w is not None) else pooled
         zi, zj = z[ti], z[tj]
         cos = (zi * zj).sum(1) / (zi.norm(dim=1) * zj.norm(dim=1) + 1e-8)
