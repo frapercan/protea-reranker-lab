@@ -44,18 +44,56 @@ from protea_reranker_lab.functional_proxy import (
 )
 from protea_reranker_lab.mechanism import MechanismSpec, is_streamable
 from protea_reranker_lab.mechanism_apply import apply_mechanism
+from protea_reranker_lab.probe_store import ProbeStore, streaming_standardisation
 
 log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
 class SweepInputs:
-    """Everything one sweep consumes, so a result can name its own inputs."""
+    """Everything one sweep consumes, so a result can name its own inputs.
 
-    residues: dict[str, np.ndarray]      # accession -> (length, layers, width)
+    The residues are a memory-mapped store rather than a dict of arrays. Holding
+    them resident, and copying them once per variant to select layers, is what ran
+    this machine out of memory twice: the mechanism was a streaming reduction and
+    the harness around it was not.
+    """
+
+    store: ProbeStore
     closures: dict[str, frozenset[str]]
-    layers: tuple[int, ...]
     source_digest: str
+
+    @property
+    def layers(self) -> tuple[int, ...]:
+        return self.store.layers
+
+
+def available_bytes() -> int:
+    """Memory actually free, from the kernel rather than from total minus a guess."""
+    for line in Path("/proc/meminfo").read_text().splitlines():
+        if line.startswith("MemAvailable:"):
+            return int(line.split()[1]) * 1024
+    return 0
+
+
+def refuse_without_headroom(needed: int, *, reserve: int = 8 * 1024 ** 3) -> None:
+    """Stop before starting if the machine cannot spare the working set.
+
+    ``reserve`` is not padding. This machine is a compute node for another
+    machine's grid, and its prediction worker has been measured at 12 GB while
+    consuming batches. Exploration here has to leave that room, and the two
+    out-of-memory kills that motivated this check happened because a probe was
+    sized against total RAM as though nothing else lived here.
+    """
+    free = available_bytes()
+    if free >= needed + reserve:
+        return
+    raise ValueError(
+        f"this sweep needs about {needed / 1024 ** 3:.2f} GB and {free / 1024 ** 3:.2f} GB "
+        f"is available, leaving less than the {reserve / 1024 ** 3:.0f} GB reserved for "
+        "the workers this node runs for the other machine. Reduce the probe or wait "
+        "until the grid is idle"
+    )
 
 
 def digest_of(path: str | Path) -> str:
@@ -103,6 +141,19 @@ def flatten_layers(residues: np.ndarray, spec: MechanismSpec) -> np.ndarray:
 _STATS_CACHE: dict[tuple, tuple] = {}
 
 
+def layer_index_for(inputs: SweepInputs, spec: MechanismSpec) -> list[int]:
+    """Positions of the spec's layers inside the store's layer axis."""
+    order = {layer: i for i, layer in enumerate(inputs.store.layers)}
+    missing = [x for x in spec.layers if x not in order]
+    if missing:
+        raise ValueError(
+            f"variant {spec.name} asks for layers {missing} and the probe holds "
+            f"{list(inputs.store.layers)}; extract them or drop the variant rather "
+            "than scoring it against a different representation"
+        )
+    return [order[x] for x in spec.layers]
+
+
 def standardisation_of(inputs: SweepInputs, spec: MechanismSpec):
     """Corpus statistics for the z-score arm, fitted over the probe once.
 
@@ -113,28 +164,28 @@ def standardisation_of(inputs: SweepInputs, spec: MechanismSpec):
     """
     if spec.normalize != "zscore":
         return None, None
-    # Cached on what the statistics actually depend on: the layer selection and
-    # whether layers are partitioned. Recomputing them per variant walked the whole
-    # probe once for every z-score arm, which is most of them.
-    key = (inputs.source_digest, tuple(inputs.layers), spec.layer_mode,
-           inputs.residues[next(iter(inputs.residues))].shape[1])
+    # Cached on what the statistics depend on, and accumulated protein by protein.
+    # The previous version concatenated the whole probe, holding a second copy of
+    # it for the duration, once per z-score arm.
+    key = (inputs.source_digest, tuple(spec.layers), spec.layer_mode)
     if key not in _STATS_CACHE:
-        stacked = np.concatenate(
-            [flatten_layers(r, spec) for r in inputs.residues.values()], axis=0
+        _STATS_CACHE[key] = streaming_standardisation(
+            inputs.store, layer_index_for(inputs, spec),
+            lambda residues: flatten_layers(residues, spec),
         )
-        _STATS_CACHE[key] = (stacked.mean(axis=0), stacked.std(axis=0))
     return _STATS_CACHE[key]
 
 
 def codes_for(inputs: SweepInputs, spec: MechanismSpec) -> tuple[np.ndarray, list[str]]:
     """One sequence code per protein, in accession order."""
     mean, std = standardisation_of(inputs, spec)
-    accessions = sorted(inputs.residues)
-    codes = np.vstack([
-        apply_mechanism(flatten_layers(inputs.residues[a], spec), spec, mean=mean, std=std)
-        for a in accessions
-    ])
-    return codes, accessions
+    index = layer_index_for(inputs, spec)
+    codes, accessions = [], []
+    for accession, residues in inputs.store.stream(index):
+        codes.append(apply_mechanism(flatten_layers(residues, spec), spec,
+                                     mean=mean, std=std))
+        accessions.append(accession)
+    return np.vstack(codes), accessions
 
 
 def score_variant(inputs: SweepInputs, spec: MechanismSpec, *,
@@ -168,11 +219,15 @@ def run_sweep(inputs: SweepInputs, specs: list[MechanismSpec], *,
               n_pairs: int = 20000, seed: int = 42) -> list[dict]:
     """Every variant against one fixed pair sample, so the comparison is paired."""
     rng = np.random.default_rng(seed)
-    accessions = sorted(inputs.residues)
+    accessions = list(inputs.store.accessions)
     closures = [inputs.closures[a] for a in accessions]
     pairs = sample_neighbour_pairs(closures, n_pairs, rng)
-    log.info("sweeping %d variants over %d proteins and %d pairs, source %s",
-             len(specs), len(accessions), pairs.shape[0], inputs.source_digest)
+    peak = inputs.store.peak_protein_bytes()
+    refuse_without_headroom(peak * 4)
+    log.info("sweeping %d variants over %d proteins and %d pairs, source %s, "
+             "peak resident about %.0f MB",
+             len(specs), len(accessions), pairs.shape[0], inputs.source_digest,
+             peak / 1024 ** 2)
 
     rows = []
     for i, spec in enumerate(specs, start=1):
