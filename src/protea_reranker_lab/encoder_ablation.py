@@ -129,6 +129,13 @@ class EncoderAblationSpec:
     pk_known_path: Path | None = None
     out_dir: Path | None = None
     protea_python: Path | None = None
+    # A frozen pool published by PROTEA's ``export_gate_bundle``. When set, the
+    # database is never opened: the gates run on the machine with the card, which
+    # is the machine that is never pointed at the shared database. The bundle is
+    # already an ordered draw plus a seeded sample with sequence twins removed, so
+    # ``ref_n``, ``seed`` and the twin exclusion do not apply to this path and the
+    # producer's manifest is the record of what was drawn.
+    bundle_path: Path | None = None
     mlflow_experiment: str = "encoder-ablation"
 
     def resolve_host_paths(self) -> None:
@@ -506,65 +513,18 @@ def _run_cafaeval_official(cell: str, work_dir: Path, obo_path: Path, ia_path: P
 
 # --------------------------------------------------------------------------- runner
 def _load_data(spec: EncoderAblationSpec, dag: GoDag, queries: list[str], rng):
-    """Pull the t0 reference pool (embeddings + GO closures) and the query embeddings (read-only)."""
-    import psycopg2
+    """The t0 pool and the query embeddings, from a bundle or from the database.
 
-    conn = psycopg2.connect(spec.dsn)
-    cur = conn.cursor()
-    # Exclude by SEQUENCE, not by accession. The bank is keyed by protein while
-    # embeddings key on sequence_id, so an accession that merely shares a
-    # sequence with a query survived an accession-level exclusion and arrived as
-    # a donor at cosine exactly 1.0, which is a guaranteed rank 1. At K=3 that is
-    # a third of the vote handed straight to the answer.
-    qset = set(queries)
-    cur.execute(
-        """SELECT DISTINCT p2.accession
-             FROM protein p1 JOIN protein p2 ON p2.sequence_id = p1.sequence_id
-            WHERE p1.accession = ANY(%s)""",
-        (list(queries),))
-    twins = {a for (a,) in cur.fetchall()} - qset
-    qset |= twins
-    if twins:
-        log.info("excluded %d accessions sharing a sequence with a query", len(twins))
+    Both paths return ``(R, Q, ref_clo, q_accs)`` and the caller cannot tell them
+    apart, which is the point of the bundle rather than a side effect of it.
+    """
+    if spec.bundle_path is not None:
+        from protea_reranker_lab.gate_bundle import load_pool_from_bundle
 
-    # ORDER BY is load-bearing, not tidiness. Without it Postgres returns this
-    # DISTINCT in whatever order the hash aggregate produces, which varies between
-    # runs, so shuffling with a fixed seed permuted the positions of a differently
-    # ordered list and selected a different reference pool every time.
-    cur.execute(
-        """SELECT DISTINCT protein_accession FROM protein_go_annotation
-           WHERE annotation_set_id = %s AND (hashtextextended(protein_accession, 42) %% %s) = 0
-           ORDER BY protein_accession""",
-        (spec.annotation_set_id, max(2, 556000 // (spec.ref_n * 2))))
-    ref_accs = [a for (a,) in cur.fetchall() if a not in qset]
-    if len(ref_accs) < spec.ref_n:
-        # The modulo divisor is derived from ref_n, and at large ref_n the
-        # integer division floors to zero and max() pins it at 2, capping the
-        # candidate pool near half the corpus however many references are asked
-        # for. Say so rather than silently training on fewer.
-        log.warning("reference pool is %d, short of the requested ref_n=%d",
-                    len(ref_accs), spec.ref_n)
-    rng.shuffle(ref_accs)
-    ref_accs = ref_accs[:spec.ref_n]
-    ref_emb = pull_mean(cur, ref_accs, spec.embedding_config_id)
-    q_emb = pull_mean(cur, queries, spec.embedding_config_id)
-    cur.execute(
-        """SELECT pga.protein_accession, gt.go_id FROM protein_go_annotation pga
-           JOIN go_term gt ON gt.id = pga.go_term_id
-           WHERE pga.annotation_set_id = %s AND pga.protein_accession = ANY(%s)""",
-        (spec.annotation_set_id, list(ref_emb.keys())))
-    leaves: dict[str, list] = {}
-    for a, go in cur.fetchall():
-        leaves.setdefault(a, []).append(go)
-    cur.close()
-    conn.close()
+        return load_pool_from_bundle(spec.bundle_path, dag, propagate, queries)
+    from protea_reranker_lab.pool_source import load_pool_from_database
 
-    keep = [a for a in ref_emb if a in leaves and propagate(leaves[a], dag)]
-    ref_clo = [propagate(leaves[a], dag) for a in keep]
-    R = np.vstack([ref_emb[a] for a in keep]).astype(np.float32)
-    q_accs = [a for a in queries if a in q_emb]
-    Q = np.vstack([q_emb[a] for a in q_accs]).astype(np.float32)
-    return R, Q, ref_clo, q_accs
+    return load_pool_from_database(spec, dag, queries, rng, pull_mean, propagate)
 
 
 def _log_mlflow(spec: EncoderAblationSpec, out_dir: Path, results: dict, ref_n: int) -> None:
