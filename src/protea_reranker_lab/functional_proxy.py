@@ -154,22 +154,71 @@ def rank_agreement(codes: np.ndarray, closures: list[frozenset[str]],
     }
 
 
-def neighbour_purity(codes: np.ndarray, closures: list[frozenset[str]], k: int) -> dict:
-    """Mean functional similarity to the k nearest neighbours, excluding self.
+def purity_per_protein(codes: np.ndarray, closures: list[frozenset[str]],
+                       k: int) -> np.ndarray:
+    """One purity per protein, which is what makes a paired interval possible.
 
-    Closer to what kNN transfer consumes than a global rank statistic, and it is
-    the measure on which the recorded screen and the real task agreed.
+    Returned rather than averaged away, because a mean without a spread is what
+    turned a 1.6-fold ordering into an apparent ranking. The proteins are the
+    resampling unit: every variant is scored on the same ones, so the comparison
+    is paired and the between-protein variance cancels.
     """
     norms = np.linalg.norm(codes, axis=1, keepdims=True)
     unit = codes / np.where(norms > 0, norms, 1.0)
     sim = unit @ unit.T
     np.fill_diagonal(sim, -np.inf)
     top = np.argpartition(-sim, k, axis=1)[:, :k]
-    scores = [
+    return np.array([
         float(np.mean([jaccard(closures[i], closures[j]) for j in top[i]]))
         for i in range(codes.shape[0])
-    ]
-    return {"purity": float(np.mean(scores)), "k": k, "n": len(scores)}
+    ])
+
+
+def neighbour_purity(codes: np.ndarray, closures: list[frozenset[str]], k: int) -> dict:
+    """Mean functional similarity to the k nearest neighbours, excluding self.
+
+    Closer to what kNN transfer consumes than a global rank statistic, and it is
+    the measure on which the recorded screen and the real task agreed.
+
+    The absolute value depends on the POOL SIZE and is not comparable across
+    probes: the ten nearest of a hundred proteins are far less similar than the ten
+    nearest of seven thousand, so a small probe compresses every arm toward zero.
+    Only the ordering within one pool means anything.
+    """
+    scores = purity_per_protein(codes, closures, k)
+    return {"purity": float(scores.mean()), "k": k, "n": int(scores.size),
+            "per_protein": scores}
+
+
+def paired_bootstrap(a: np.ndarray, b: np.ndarray, *, draws: int = 4000,
+                     seed: int = 42) -> dict:
+    """Interval on the per-protein difference between two variants.
+
+    Paired on proteins, which is the whole reason it is worth doing: the variants
+    are scored on the same proteins, so resampling the proteins removes the
+    between-protein variance that otherwise swamps a difference of a thousandth.
+
+    Returns the observed difference, a percentile interval, and whether the
+    interval excludes zero, which is the only thing that turns an ordering into a
+    finding.
+    """
+    if a.shape != b.shape:
+        raise ValueError(
+            f"paired bootstrap needs the same proteins in the same order, got "
+            f"{a.shape} and {b.shape}"
+        )
+    rng = np.random.default_rng(seed)
+    diff = a - b
+    idx = rng.integers(0, diff.size, size=(draws, diff.size))
+    means = diff[idx].mean(axis=1)
+    lo, hi = np.percentile(means, [2.5, 97.5])
+    return {
+        "difference": float(diff.mean()),
+        "ci_low": float(lo),
+        "ci_high": float(hi),
+        "separates": bool(lo > 0 or hi < 0),
+        "draws": draws,
+    }
 
 
 def sample_pairs(n: int, count: int, rng: np.random.Generator) -> np.ndarray:

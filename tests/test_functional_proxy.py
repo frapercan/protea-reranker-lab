@@ -25,6 +25,8 @@ from protea_reranker_lab.functional_proxy import (
     jaccard,
     neighbour_purity,
     pair_cosines,
+    paired_bootstrap,
+    purity_per_protein,
     rank_agreement,
     refuse_a_constant_gold,
     refuse_a_degenerate_screen,
@@ -227,3 +229,68 @@ def test_rank_agreement_reports_the_gold_spread_as_well():
 
     assert got["distinct_gold_values"] >= 3
 
+
+
+# ------------------------------------------------------------------- the interval
+
+def test_the_bootstrap_separates_a_real_difference():
+    a = np.linspace(0.10, 0.20, 300)
+    b = a - 0.02
+
+    got = paired_bootstrap(a, b)
+
+    assert got["difference"] == pytest.approx(0.02, abs=1e-6)
+    assert got["separates"] is True
+    assert got["ci_low"] > 0
+
+
+def test_the_bootstrap_does_not_separate_noise():
+    """The case this exists for: a 1.6-fold ordering over a hundred proteins looked
+    like a ranking and may be nothing."""
+    rng = np.random.default_rng(0)
+    a = rng.normal(0.1, 0.05, 300)
+    b = rng.normal(0.1, 0.05, 300)
+
+    assert paired_bootstrap(a, b)["separates"] is False
+
+
+def test_the_interval_brackets_the_observed_difference():
+    rng = np.random.default_rng(1)
+    a = rng.normal(0.12, 0.03, 200)
+    b = rng.normal(0.10, 0.03, 200)
+
+    got = paired_bootstrap(a, b)
+
+    assert got["ci_low"] <= got["difference"] <= got["ci_high"]
+
+
+def test_it_is_paired_rather_than_two_independent_samples():
+    """Pairing is the point: the same proteins score both arms, so between-protein
+    variance cancels and a difference of a thousandth becomes visible."""
+    rng = np.random.default_rng(2)
+    shared = rng.normal(0.1, 0.20, 400)      # large between-protein spread
+    a = shared + 0.01
+    b = shared
+
+    assert paired_bootstrap(a, b)["separates"] is True
+
+
+def test_mismatched_arms_are_refused():
+    """Different proteins in the two arms would make the pairing a lie."""
+    with pytest.raises(ValueError, match="same proteins"):
+        paired_bootstrap(np.zeros(10), np.zeros(11))
+
+
+def test_purity_per_protein_returns_one_value_per_protein():
+    codes, closures, _rng = _structured_pool(n=40, d=64)
+
+    got = purity_per_protein(codes, closures, 5)
+
+    assert got.shape == (40,)
+
+
+def test_the_mean_of_the_per_protein_scores_is_the_reported_purity():
+    codes, closures, _rng = _structured_pool(n=40, d=64)
+
+    assert (neighbour_purity(codes, closures, 5)["purity"]
+            == pytest.approx(purity_per_protein(codes, closures, 5).mean()))
