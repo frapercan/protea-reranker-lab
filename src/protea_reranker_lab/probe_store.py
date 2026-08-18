@@ -28,6 +28,8 @@ from pathlib import Path
 
 import numpy as np
 
+from protea_reranker_lab.residue_probe import chunk_spans
+
 log = logging.getLogger(__name__)
 
 
@@ -40,6 +42,23 @@ class ProbeStore:
     offsets: np.ndarray
     layers: tuple[int, ...]
     width: int
+    #: Window boundaries per protein, as (start, end) pairs. Kept because CHUNK
+    #: AGGREGATION is an axis and merged residues cannot recover it: once the
+    #: overlaps are averaged, which residue saw which context is gone and the only
+    #: way back is another forward pass. A long protein is eight or ten windows and
+    #: each saw different context, so the window is a real alternative unit of
+    #: aggregation to the residue.
+    spans: dict[str, list] | None = None
+
+    def windows(self, accession: str) -> list[tuple[int, int]]:
+        """The protein's window boundaries, or a refusal naming what is missing."""
+        if not self.spans:
+            raise ValueError(
+                "this probe stored no window boundaries, so chunk-level aggregation "
+                "cannot be measured on it without extracting again"
+            )
+        return [tuple(x) for x in self.spans[accession]]
+
 
     @property
     def n_proteins(self) -> int:
@@ -113,7 +132,8 @@ def open_probe(path: str | Path) -> ProbeStore:
     index = json.loads(path.with_suffix(".index.json").read_text())
     offsets = np.array(index["offsets"], dtype=np.int64)
     store = ProbeStore(path, index["accessions"], offsets,
-                       tuple(index["layers"]), int(index["width"]))
+                       tuple(index["layers"]), int(index["width"]),
+                       index.get("spans"))
     on_disk = np.load(path, mmap_mode="r")
     if on_disk.shape[0] != store.n_residues:
         raise ValueError(
@@ -171,6 +191,8 @@ def extract_and_write(path, sequences: dict[str, str], spec, extract_one,
     matrix = np.lib.format.open_memmap(
         path, mode="w+", dtype=np.float32, shape=(total, len(layers), width)
     )
+    spans = {a: chunk_spans(len(sequences[a]), spec.chunk_size, spec.chunk_overlap)
+             for a in accessions}
     try:
         for i, accession in enumerate(accessions):
             block = extract_one(sequences[accession], spec)
@@ -192,6 +214,7 @@ def extract_and_write(path, sequences: dict[str, str], spec, extract_one,
     path.with_suffix(".index.json").write_text(json.dumps({
         "accessions": accessions, "offsets": offsets.tolist(),
         "layers": list(layers), "width": width,
+        "spans": {a: [list(x) for x in v] for a, v in spans.items()},
     }))
     log.info("probe written: %d proteins, %d residues, %.2f GB, memory-mapped",
              len(accessions), total, total * len(layers) * width * 4 / 1024 ** 3)
