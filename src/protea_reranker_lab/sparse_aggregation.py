@@ -147,3 +147,54 @@ def orders_disagree(local: np.ndarray, k: int) -> bool:
     a = np.flatnonzero(aggregate_then_sparsify(local, k)[0])
     b = np.flatnonzero(topk_real(sparsify_then_aggregate(local, k), k)[0])
     return set(a.tolist()) != set(b.tolist())
+
+def sparsify_aggregate_sparsify(local: np.ndarray, k_local: int, k_sequence: int) -> np.ndarray:
+    """SDR per residue, aggregate, SDR again. The author's shape, and it is a third thing.
+
+    ``top-k( mean( top-k(x_i) ) )``. Neither of the two orders above: the first
+    sparsification decides what each part of the protein is allowed to say, the
+    aggregation counts what was said, and the second sparsification decides what
+    the protein says overall.
+
+    The object in the middle is the one that matters. ``mean(top-k(x_i))`` is a
+    USAGE HISTOGRAM over the dictionary, weighted by magnitude: entry j is how
+    often atom j was selected locally, times how strongly. So the outer top-k
+    selects atoms that are both FREQUENT and STRONG across the protein, which is a
+    different criterion from ``top-k(mean(x))``, where an atom that is moderately
+    present everywhere and an atom that is intense in one place are already blended
+    before anything is selected.
+
+    Why this is not the arm that lost. The recorded negative for sparsify-first was
+    a naive BINARY chunk SDR, decisively negative at -0.05 to -0.13. In binary the
+    middle object degenerates: every selected atom contributes 1, so the histogram
+    is pure frequency and the outer selection is a popularity contest with no way
+    for one intense cell to carry an atom. Real-valued top-k keeps the magnitude,
+    which is exactly the term that lets a strong-in-one-place feature survive the
+    average. Whether that rescues the result is the cheap two-arm question that
+    should be answered before any of the surface is funded.
+
+    ``k_local`` and ``k_sequence`` are separate because they answer different
+    questions. The first bounds what a residue may assert, the second bounds the
+    protein's code, and the useful regime is ``k_sequence`` well under the union of
+    local supports, or the second sparsification selects nothing.
+    """
+    return topk_real(sparsify_then_aggregate(local, k_local), k_sequence)
+
+
+def usage_histogram(local: np.ndarray, k_local: int) -> np.ndarray:
+    """The middle object of the three-stage pipeline, exposed because it is the claim.
+
+    Magnitude-weighted usage per atom. Its unweighted counterpart is what the
+    binary arm reduced to, and the difference between the two is the whole reason
+    the three-stage form is worth re-running.
+    """
+    return sparsify_then_aggregate(local, k_local)[0]
+
+
+def selection_frequency(local: np.ndarray, k_local: int) -> np.ndarray:
+    """How often each atom was selected locally, ignoring magnitude.
+
+    This is what a binary SDR aggregates to. Kept beside the weighted version so
+    an arm can report both and say which of the two its result depended on.
+    """
+    return (topk_real(local, k_local) != 0).mean(axis=0)
