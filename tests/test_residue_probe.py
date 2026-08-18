@@ -20,6 +20,8 @@ from protea_reranker_lab.residue_probe import (
     LENGTH_BANDS,
     ProbeSpec,
     band_of,
+    chunk_spans,
+    computed_residues,
     estimate_bytes,
     plan_probe,
     refuse_an_oversized_probe,
@@ -105,12 +107,14 @@ def test_the_size_is_summed_over_proteins_not_derived_from_a_mean():
     assert estimate_bytes(lengths, chosen, spec) == (100 + 300) * 2 * 10 * 4
 
 
-def test_truncation_is_counted_in_the_size():
+def test_a_long_protein_is_sized_at_its_full_length():
+    """Chunked, not truncated: every residue is stored, so the size is the whole
+    protein rather than a window of it."""
     lengths = {"a": 5000}
     chosen = {">2048": ["a"]}
-    spec = ProbeSpec(layers=(0,), width=10, max_length=2048)
+    spec = ProbeSpec(layers=(0,), width=10)
 
-    assert estimate_bytes(lengths, chosen, spec) == 2048 * 10 * 4
+    assert estimate_bytes(lengths, chosen, spec) == 5000 * 10 * 4
 
 
 def test_an_oversized_probe_is_refused_before_the_forward_passes():
@@ -132,16 +136,26 @@ def test_a_probe_that_fits_passes():
 
 # ---------------------------------------------------------------------- the plan
 
-def test_the_plan_reports_which_proteins_will_be_truncated():
-    """The long band is where the mechanism is expected to act most and is exactly
-    the band that gets cut, so the count must be on the plan rather than inferred."""
+def test_nothing_is_truncated_and_the_chunked_ones_are_named():
+    """The long band is where the mechanism is expected to act most, so cutting it
+    would measure the mechanism on a prefix precisely where it matters."""
     lengths = _pool()
-    plan = plan_probe(lengths, ProbeSpec(per_band=5, max_length=2048))
+    plan = plan_probe(lengths, ProbeSpec(per_band=5, chunk_size=1024))
 
-    assert set(plan["truncated"]) == {
+    assert plan["truncated"] == []
+    assert set(plan["chunked"]) == {
         a for members in plan["accessions"].values() for a in members
-        if lengths[a] > 2048
+        if lengths[a] > 1024
     }
+
+
+def test_the_plan_separates_residues_stored_from_residues_computed():
+    """Overlapping windows are merged into one row per residue, so storage is the
+    protein's length while compute is the sum of the windows. Reporting one as the
+    other understates the forward pass by the overlap fraction."""
+    plan = plan_probe(_pool(), ProbeSpec(per_band=5, chunk_size=512, chunk_overlap=128))
+
+    assert plan["residues_computed"] > plan["residues_stored"]
 
 
 def test_the_plan_costs_nothing_when_it_is_rejected():
@@ -156,3 +170,54 @@ def test_the_plan_carries_the_layers_it_was_sized_for():
     plan = plan_probe(_pool(), ProbeSpec(per_band=5, layers=(0, 10)))
 
     assert plan["layers"] == [0, 10]
+
+
+# ------------------------------------------------------------------------ chunking
+
+def test_the_windows_cover_the_whole_sequence():
+    """Not a prefix. That is the difference between chunking and truncating."""
+    spans = chunk_spans(2500, 1024, 128)
+
+    assert spans[0][0] == 0
+    assert spans[-1][1] == 2500
+
+
+def test_consecutive_windows_overlap_by_the_requested_amount():
+    spans = chunk_spans(3000, 1024, 128)
+
+    assert spans[1][0] == 1024 - 128
+
+
+def test_a_short_sequence_is_one_window():
+    assert chunk_spans(400, 1024, 128) == [(0, 400)]
+
+
+def test_an_overlap_reaching_the_chunk_size_is_refused():
+    """It would never advance, or would produce one window per residue."""
+    with pytest.raises(ValueError, match="never advances"):
+        chunk_spans(1000, 512, 512)
+
+
+def test_computed_residues_exceeds_the_length_by_the_overlap():
+    spec = ProbeSpec(chunk_size=512, chunk_overlap=128)
+
+    assert computed_residues(2000, spec) > 2000
+
+
+def test_a_protein_shorter_than_a_window_computes_exactly_its_length():
+    assert computed_residues(300, ProbeSpec(chunk_size=1024)) == 300
+
+
+def test_the_span_convention_matches_the_production_one():
+    """Mirrored from PROTEA's _compute_chunk_spans, semantics included, so the
+    probe and production partition a long protein the same way."""
+    length, size, overlap = 2600, 1024, 128
+    step = size - overlap
+    expected = []
+    start = 0
+    while start < length:
+        expected.append((start, min(start + size, length)))
+        start += step
+
+    assert chunk_spans(length, size, overlap) == expected
+
