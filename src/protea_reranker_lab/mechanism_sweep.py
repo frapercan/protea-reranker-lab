@@ -112,7 +112,8 @@ def parse_fasta(path: str | Path) -> dict[str, str]:
     accession is, rather than agreeing by luck on the files we happen to hold.
     """
     sequences: dict[str, str] = {}
-    accession, parts = None, []
+    accession: str | None = None
+    parts: list[str] = []
     for line in Path(path).read_text().splitlines():
         if line.startswith(">"):
             if accession:
@@ -233,6 +234,8 @@ def score_variant(inputs: SweepInputs, spec: MechanismSpec, *,
     result: dict = {"variant": spec.name, "scored": True,
                     "nonzero": float(np.mean((codes != 0).sum(axis=1)))}
     try:
+        if pairs is None:
+            raise ValueError("no pairs were sampled, so there is no ranking to score")
         result.update(rank_agreement(codes, closures, pairs))
     except ValueError as exc:
         result.update({"spearman": None, "rank_reason": str(exc)[:120]})

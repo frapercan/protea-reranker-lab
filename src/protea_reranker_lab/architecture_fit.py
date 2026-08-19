@@ -142,8 +142,6 @@ def _pooled_batched(residues: list[np.ndarray], matrix, torch, device,
     forty-residue proteins costs forty rows rather than a padded eight thousand.
     """
     lengths = [r.shape[0] for r in residues]
-    out = torch.zeros(len(residues), device=device,
-                      dtype=torch.float32) if False else None
     pooled = []
     start = 0
     while start < len(residues):

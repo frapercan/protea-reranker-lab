@@ -72,7 +72,10 @@ def local_codes(block: np.ndarray, spec: MechanismSpec) -> np.ndarray:
     than dismissed, because it is the control that says whether magnitude is what
     rescues the order.
     """
-    if not spec.sparsifies_locally:
+    if not spec.sparsifies_locally or spec.k_local is None:
+        # sparsifies_locally already implies a k, but the contract types it as
+        # optional, and a None reaching topk_real would select nothing silently
+        # rather than raising.
         return block
     sparse = topk_real(block, spec.k_local)
     if spec.weighting == "frequency":

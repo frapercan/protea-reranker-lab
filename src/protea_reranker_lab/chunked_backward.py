@@ -29,6 +29,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from typing import Any
 
 log = logging.getLogger(__name__)
 
@@ -43,8 +44,12 @@ class ChunkedFit:
     """
 
     chunks: Callable[[], Iterator]
-    weights: object
-    counts: object            # residues per protein, one row each
+    #: Tensors of whichever framework the caller brought, which is why every
+    #: function here takes ``torch`` as an argument instead of importing it.
+    #: ``Any`` states that deliberately; the alternative is a hard dependency
+    #: declared purely to satisfy a checker.
+    weights: Any
+    counts: Any               # residues per protein, one row each
     n_proteins: int
     width: int
     project: Callable         # (block, weights, keep) -> per-residue codes
