@@ -64,7 +64,13 @@ Stage 2: features
 The feature schema is pinned in ``protea-contracts``
 (:data:`~protea_contracts.ALL_FEATURES`). The lab never adds a feature
 column directly; a schema change must go through the contracts package so
-that PROTEA's producer side stays in lockstep. The
+that PROTEA's producer side stays in lockstep. Training does not use that
+catalogue wholesale: the default set is
+:data:`~protea_reranker_lab.contracts.DEFAULT_TRAINING_FEATURES`, which holds
+out the families listed in
+:data:`~protea_reranker_lab.contracts.UNADOPTED_FEATURE_FAMILIES` (declared
+but unproduced signals, and the ``lineage`` family excluded by the leakage
+ruling). Set ``enabled_feature_families`` to train with them. The
 :func:`~protea_reranker_lab.schemas.compute_feature_schema_sha` digest is
 written into every ``run.json`` and into the dataset manifest, so a silent
 column drift invalidates the cache rather than corrupting a comparison.

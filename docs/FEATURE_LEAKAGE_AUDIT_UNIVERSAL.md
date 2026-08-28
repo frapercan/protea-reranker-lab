@@ -6,6 +6,25 @@ columns introduced in the F-RERANK-UNIVERSAL.2 slice: the 4 latent
 `lineage_*` columns (present in parquet, absent from ALL_FEATURES before v3),
 and the two pool-stage-injected columns `plm_id` and `k_context`.
 
+## Where this ruling is enforced (updated with contracts v1.7.0)
+
+The `lineage_*` ruling below was originally enforced by the contracts
+catalogue itself: the columns were in the parquet but not in `ALL_FEATURES`,
+so nothing trained on them. Contracts v1.7.0 (v6 schema) put them back into
+`ALL_FEATURES`, which is a catalogue decision on the producer side and does
+not overturn this ruling.
+
+The ruling is now enforced in the lab, where it belongs. The default training
+set is `protea_reranker_lab.contracts.DEFAULT_TRAINING_FEATURES`, the
+catalogue minus `UNADOPTED_FEATURE_FAMILIES`, which holds out `lineage`. The
+guard lives in `tests/test_feature_count_guard.py`. The NO-GO ruling below is
+unchanged, and so is the set of columns actually trained on: the default set
+still hashes to schema sha `a0986dedd912`.
+
+Re-evaluation still requires a controlled ablation. The family stays
+reachable through `enabled_feature_families=["lineage", ...]`, which is how
+that ablation should switch it on.
+
 ## Golden rule (from base audit)
 
 > A feature must be computable **identically** for a never-seen protein with

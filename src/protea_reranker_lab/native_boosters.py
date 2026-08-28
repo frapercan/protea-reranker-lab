@@ -39,10 +39,11 @@ import lightgbm as lgb
 import numpy as np
 import pyarrow.parquet as pq
 from protea_contracts import (
-    ALL_FEATURES,
     CATEGORICAL_FEATURES,
     compute_feature_schema_sha,
 )
+
+from .contracts import DEFAULT_TRAINING_FEATURES
 
 if TYPE_CHECKING:
     from .native_boosters_mlflow import MlflowLogger
@@ -143,7 +144,9 @@ def resolve_numeric_features(parquet_path: Path, features: list[str] | None) -> 
     cat_set = set(CATEGORICAL_FEATURES)
     if features:
         return [f for f in features if f.strip() and f in present]
-    return [f for f in ALL_FEATURES if f in present and f not in cat_set]
+    return [
+        f for f in DEFAULT_TRAINING_FEATURES if f in present and f not in cat_set
+    ]
 
 
 def feature_schema_sha() -> str:

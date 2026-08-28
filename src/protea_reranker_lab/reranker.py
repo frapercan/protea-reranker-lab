@@ -45,10 +45,11 @@ from typing import Any
 import lightgbm as lgb
 import numpy as np
 from protea_contracts import (
-    ALL_FEATURES,
     CATEGORICAL_FEATURES,
     FEATURE_FAMILIES,
 )
+
+from .contracts import DEFAULT_TRAINING_FEATURES
 
 
 @dataclass
@@ -106,7 +107,9 @@ class TrainConfig:
             # any named parquet column directly, so no contracts-family lookup.
             feats = list(self.feature_override)
         elif self.enabled_feature_families is None:
-            feats = list(ALL_FEATURES)
+            # The lab default, not the contracts catalogue. See
+            # UNADOPTED_FEATURE_FAMILIES for what is held out and why.
+            feats = list(DEFAULT_TRAINING_FEATURES)
         else:
             feats = []
             for fam in self.enabled_feature_families:

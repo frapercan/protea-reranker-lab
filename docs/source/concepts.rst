@@ -58,11 +58,18 @@ variant :mod:`protea_reranker_lab.pooled_staging` does the same across many
 manifests at once for the universal booster, int-coding the heavy string
 columns so memory stays bounded.
 
-**Assemble features.** The feature columns are pinned by ``protea-contracts``
-(:data:`~protea_contracts.ALL_FEATURES`). The lab never edits that list; a
-schema change is a coordinated contracts bump so PROTEA's producer side
-stays in lockstep. A schema digest is written into every run artifact, so a
-silent column drift invalidates the cache instead of corrupting a
+**Assemble features.** The available columns are pinned by
+``protea-contracts`` (:data:`~protea_contracts.ALL_FEATURES`). The lab never
+edits that list; a schema change is a coordinated contracts bump so PROTEA's
+producer side stays in lockstep. That catalogue is not the training set:
+it also declares columns nothing produces yet, and columns held out by a
+leakage ruling. What the booster trains on by default is
+:data:`~protea_reranker_lab.contracts.DEFAULT_TRAINING_FEATURES`, the
+catalogue minus
+:data:`~protea_reranker_lab.contracts.UNADOPTED_FEATURE_FAMILIES`. Adopting a
+new family is a deliberate edit there, so a contracts bump cannot move the
+training set on its own. A schema digest is written into every run artifact,
+so a silent column drift invalidates the cache instead of corrupting a
 comparison.
 
 **Train.** :mod:`protea_reranker_lab.reranker` wraps LightGBM. Buckets are
