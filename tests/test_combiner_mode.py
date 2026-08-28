@@ -165,11 +165,17 @@ def test_feature_override_still_honours_drop_features() -> None:
 
 
 def test_feature_override_none_keeps_monolith_features() -> None:
-    """Without feature_override the monolith uses the full contracts schema."""
-    from protea_contracts import ALL_FEATURES
+    """Without feature_override the monolith uses the lab default feature set.
+
+    Asserted against DEFAULT_TRAINING_FEATURES rather than ALL_FEATURES. The
+    contracts catalogue includes families the lab has not adopted, so
+    comparing against it would make this test tautological: it would follow
+    the catalogue wherever a dependency bump moved it.
+    """
+    from protea_reranker_lab.contracts import DEFAULT_TRAINING_FEATURES
 
     cfg = TrainConfig()
-    assert set(cfg.selected_features()) == set(ALL_FEATURES)
+    assert set(cfg.selected_features()) == set(DEFAULT_TRAINING_FEATURES)
 
 
 # ---------------------------------------------------------------------------
