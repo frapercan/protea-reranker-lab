@@ -2121,8 +2121,8 @@ pydantic = ">=2.5"
 [package.source]
 type = "git"
 url = "https://github.com/frapercan/protea-contracts.git"
-reference = "dd335182a6624a82e3285df9d04a7ace3402effd"
-resolved_reference = "dd335182a6624a82e3285df9d04a7ace3402effd"
+reference = "f7008c90639c252dfcd674b22c20e8e406a7485d"
+resolved_reference = "f7008c90639c252dfcd674b22c20e8e406a7485d"
 
 [[package]]
 name = "protobuf"
@@ -3297,4 +3297,4 @@ native = ["boto3", "minio", "mlflow-skinny"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<4.0"
-content-hash = "6362abc4f777777fd5aa115f81d89a46091ba76007ca5be148f95ffb8ebb1f5f"
+content-hash = "0da9c516928094ea81f246453256dbd4ef0bee2f6ceeb1adb78a12df5b8671c9"
