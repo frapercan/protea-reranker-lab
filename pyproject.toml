@@ -19,7 +19,7 @@ dependencies = [
     "scipy>=1.11",
     "wandb>=0.16",
     "pyyaml>=6",
-    "protea-contracts @ git+https://github.com/frapercan/protea-contracts.git@dd335182a6624a82e3285df9d04a7ace3402effd",
+    "protea-contracts @ git+https://github.com/frapercan/protea-contracts.git@f7008c90639c252dfcd674b22c20e8e406a7485d",
     "matplotlib>=3.8",
 ]
 
