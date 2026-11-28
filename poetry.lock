@@ -2105,7 +2105,7 @@ testing = ["coverage", "pytest", "pytest-benchmark"]
 
 [[package]]
 name = "protea-contracts"
-version = "1.7.0"
+version = "1.8.0"
 description = "Shared ABCs, payload schemas, feature registry contract and compute_schema_sha helper for the PROTEA stack."
 optional = false
 python-versions = ">=3.12,<4.0"
@@ -2121,8 +2121,8 @@ pydantic = ">=2.5"
 [package.source]
 type = "git"
 url = "https://github.com/frapercan/protea-contracts.git"
-reference = "f7008c90639c252dfcd674b22c20e8e406a7485d"
-resolved_reference = "f7008c90639c252dfcd674b22c20e8e406a7485d"
+reference = "90627e7813b2c6bbe328c64eda52933807e7c315"
+resolved_reference = "90627e7813b2c6bbe328c64eda52933807e7c315"
 
 [[package]]
 name = "protobuf"
@@ -3297,4 +3297,4 @@ native = ["boto3", "minio", "mlflow-skinny"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.12,<4.0"
-content-hash = "0da9c516928094ea81f246453256dbd4ef0bee2f6ceeb1adb78a12df5b8671c9"
+content-hash = "260c4b48b8b4b6286821bc372527efe4f3dbda9b22ffc5f583cffc10c930fac9"
